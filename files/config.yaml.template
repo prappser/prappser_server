@@ -1,0 +1,4 @@
+owners:
+  # Prappser2025
+  master_password_hash: 086c846547fd8a5750fb8ea740c5e6bb
+  registration_ttl_sec: 10
