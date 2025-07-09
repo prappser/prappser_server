@@ -2,28 +2,30 @@ package main
 
 import (
 	"github.com/prappser/prappser_server/internal"
-	"github.com/prappser/prappser_server/internal/user"
+	"github.com/prappser/prappser_server/internal/owner"
+	"github.com/prappser/prappser_server/internal/status"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 )
 
 func main() {
-	_, err := internal.NewDB()
+	db, err := internal.NewDB()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error initializing database")
 		return
 	}
+	config, err := internal.LoadConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error loading config")
+		return
+	}
+	ownerRespository := owner.NewSQLite3OwnerRepository(db)
+	ownerEndpoints := owner.NewEndpoints(ownerRespository, config.Owners)
+	statusEndpoints := status.NewEndpoints("1.0.0")
+
+	requestHandler := internal.NewRequestHandler(ownerEndpoints, statusEndpoints)
 
 	if err := fasthttp.ListenAndServe(":8080", requestHandler); err != nil {
 		log.Fatal().Err(err).Msg("Error starting server")
-	}
-}
-
-func requestHandler(ctx *fasthttp.RequestCtx) {
-	switch string(ctx.Path()) {
-	case "/users/owners/register":
-		user.HandleUsersOwnersRegister(ctx)
-	default:
-		ctx.Error("Not Found", fasthttp.StatusNotFound)
 	}
 }
