@@ -1,1 +1,1 @@
-DROP TABLE owners;
+DROP TABLE users;

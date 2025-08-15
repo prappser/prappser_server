@@ -1,4 +1,6 @@
-owners:
+users:
   # Prappser2025
   master_password_md5_hash: 086c846547fd8a5750fb8ea740c5e6bb
   registration_token_ttl_sec: 10
+  jwt_expiration_hours: 24
+  challenge_ttl_sec: 300
