@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant Client
+    participant Server
+    participant DB as Database
+
+    Note over Client,DB: Owner Registration Flow
+    Client->>Server: POST /owner/register<br/>Authorization: Bearer {JWE}
+    Server->>Server: Extract JWE from header
+    Server->>Server: Decrypt JWE with master password
+    Server->>Server: Extract JWS from JWE payload
+    Server->>Server: Verify JWS signature with public key
+    Server->>Server: Parse JWS claims (publicKey, username, iat)
+    Server->>DB: Check if user exists by public_key
+    DB-->>Server: User not found
+    Server->>Server: Generate user ID
+    Server->>DB: Create user (id, publicKey, username, role='owner', createdAt)
+    DB-->>Server: User created
+    Server-->>Client: 201 Created<br/>{message: "Owner registered successfully", user_id}
+
+    Note over Client,DB: User Authentication Flow
+    Client->>Server: GET /auth/challenge?username={username}
+    Server->>DB: Get user by username
+    DB-->>Server: User found
+    Server->>Server: Generate random challenge
+    Server->>Server: Store challenge with expiration
+    Server-->>Client: 200 OK<br/>{challenge, expires_at}
+
+    Client->>Server: POST /auth/login<br/>Authorization: Bearer {JWS}
+    Server->>Server: Extract JWS from header
+    Server->>Server: Parse JWS claims (username, challenge, iat)
+    Server->>DB: Get user by username
+    DB-->>Server: User found with public key
+    Server->>Server: Parse user's public key from PEM
+    Server->>Server: Verify JWS signature with user's public key
+    Server->>Server: Verify challenge matches stored challenge
+    Server->>Server: Check challenge expiration
+    Server->>Server: Generate JWT token with RSA signing
+    Server->>Server: Clean up used challenge
+    Server-->>Client: 200 OK<br/>{token, expires_at}
+
+    Note over Client,DB: Protected Resource Access
+    Client->>Server: GET /protected/resource<br/>Authorization: Bearer {JWT}
+    Server->>Server: Extract JWT from header
+    Server->>Server: Verify JWT signature with server public key
+    Server->>DB: Get user by ID from JWT claims
+    DB-->>Server: User found
+    Server-->>Client: 200 OK<br/>{protected_data} 

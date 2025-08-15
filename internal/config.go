@@ -3,12 +3,12 @@ package internal
 import (
 	"fmt"
 
-	"github.com/prappser/prappser_server/internal/owner"
+	"github.com/prappser/prappser_server/internal/user"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Owners owner.Config `mapstructure:"owners"`
+	Users user.Config `mapstructure:"users"`
 }
 
 func LoadConfig() (*Config, error) {

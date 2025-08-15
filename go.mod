@@ -4,6 +4,7 @@ go 1.22.11
 
 require (
 	github.com/goccy/go-json v0.10.5
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/lestrrat-go/jwx/v3 v3.0.0-alpha1
 	github.com/rs/zerolog v1.33.0
