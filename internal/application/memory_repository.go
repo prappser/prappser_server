@@ -1,0 +1,264 @@
+package application
+
+import (
+	"fmt"
+	"sort"
+)
+
+type MemoryRepository struct {
+	applications    map[string]*Application
+	componentGroups map[string]*ComponentGroup
+	components      map[string]*Component
+	members         map[string]*Member
+}
+
+func NewMemoryRepository() *MemoryRepository {
+	return &MemoryRepository{
+		applications:    make(map[string]*Application),
+		componentGroups: make(map[string]*ComponentGroup),
+		components:      make(map[string]*Component),
+		members:         make(map[string]*Member),
+	}
+}
+
+func (r *MemoryRepository) CreateApplication(app *Application) error {
+	r.applications[app.ID] = app
+	return nil
+}
+
+func (r *MemoryRepository) GetApplicationByID(id string) (*Application, error) {
+	app, exists := r.applications[id]
+	if !exists {
+		return nil, fmt.Errorf("application not found")
+	}
+
+	// Create a copy and load component groups
+	result := *app
+	groups, err := r.GetComponentGroupsByApplicationID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	result.ComponentGroups = make([]ComponentGroup, len(groups))
+	for i, group := range groups {
+		result.ComponentGroups[i] = *group
+
+		components, err := r.GetComponentsByGroupID(group.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ComponentGroups[i].Components = make([]Component, len(components))
+		for j, comp := range components {
+			result.ComponentGroups[i].Components[j] = *comp
+		}
+	}
+
+	// Load members
+	members, err := r.GetMembersByApplicationID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	result.Members = make([]Member, len(members))
+	for i, member := range members {
+		result.Members[i] = *member
+	}
+
+	return &result, nil
+}
+
+func (r *MemoryRepository) GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error) {
+	var result []*Application
+	for _, app := range r.applications {
+		if app.OwnerPublicKey == ownerPublicKey {
+			result = append(result, app)
+		}
+	}
+
+	// Sort by creation time (newest first)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+
+	return result, nil
+}
+
+func (r *MemoryRepository) GetApplicationState(id string) (*ApplicationState, error) {
+	app, exists := r.applications[id]
+	if !exists {
+		return nil, fmt.Errorf("application not found")
+	}
+
+	return &ApplicationState{
+		ID:        app.ID,
+		Name:      app.Name,
+		UpdatedAt: app.UpdatedAt,
+	}, nil
+}
+
+func (r *MemoryRepository) UpdateApplicationTimestamp(id string) error {
+	app, exists := r.applications[id]
+	if !exists {
+		return fmt.Errorf("application not found")
+	}
+
+	app.UpdateTimestamp()
+	return nil
+}
+
+func (r *MemoryRepository) DeleteApplication(id string) error {
+	_, exists := r.applications[id]
+	if !exists {
+		return fmt.Errorf("application not found")
+	}
+
+	// Delete the application
+	delete(r.applications, id)
+
+	// Delete associated component groups
+	var groupsToDelete []string
+	for groupID, group := range r.componentGroups {
+		if group.ApplicationID == id {
+			groupsToDelete = append(groupsToDelete, groupID)
+		}
+	}
+	for _, groupID := range groupsToDelete {
+		delete(r.componentGroups, groupID)
+	}
+
+	// Delete associated components
+	var componentsToDelete []string
+	for compID, comp := range r.components {
+		if comp.ApplicationID == id {
+			componentsToDelete = append(componentsToDelete, compID)
+		}
+	}
+	for _, compID := range componentsToDelete {
+		delete(r.components, compID)
+	}
+
+	// Delete associated members
+	var membersToDelete []string
+	for memberID, member := range r.members {
+		if member.ApplicationID == id {
+			membersToDelete = append(membersToDelete, memberID)
+		}
+	}
+	for _, memberID := range membersToDelete {
+		delete(r.members, memberID)
+	}
+
+	return nil
+}
+
+func (r *MemoryRepository) CreateComponentGroup(group *ComponentGroup) error {
+	r.componentGroups[group.ID] = group
+	return nil
+}
+
+func (r *MemoryRepository) GetComponentGroupsByApplicationID(appID string) ([]*ComponentGroup, error) {
+	var result []*ComponentGroup
+	for _, group := range r.componentGroups {
+		if group.ApplicationID == appID {
+			result = append(result, group)
+		}
+	}
+
+	// Sort by index
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Index < result[j].Index
+	})
+
+	return result, nil
+}
+
+func (r *MemoryRepository) CreateComponent(component *Component) error {
+	r.components[component.ID] = component
+	return nil
+}
+
+func (r *MemoryRepository) GetComponentsByGroupID(groupID string) ([]*Component, error) {
+	var result []*Component
+	for _, comp := range r.components {
+		if comp.ComponentGroupID == groupID {
+			result = append(result, comp)
+		}
+	}
+
+	// Sort by index
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Index < result[j].Index
+	})
+
+	return result, nil
+}
+
+func (r *MemoryRepository) GetComponentsByApplicationID(appID string) ([]*Component, error) {
+	var result []*Component
+	for _, comp := range r.components {
+		if comp.ApplicationID == appID {
+			result = append(result, comp)
+		}
+	}
+
+	// Sort by index
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Index < result[j].Index
+	})
+
+	return result, nil
+}
+
+func (r *MemoryRepository) CreateMember(member *Member) error {
+	r.members[member.ID] = member
+	return nil
+}
+
+func (r *MemoryRepository) GetMembersByApplicationID(appID string) ([]*Member, error) {
+	var result []*Member
+	for _, member := range r.members {
+		if member.ApplicationID == appID {
+			result = append(result, member)
+		}
+	}
+
+	// Sort by role (owner first, then admin, then member, then viewer)
+	sort.Slice(result, func(i, j int) bool {
+		roleOrder := map[MemberRole]int{
+			MemberRoleOwner:  0,
+			MemberRoleAdmin:  1,
+			MemberRoleMember: 2,
+			MemberRoleViewer: 3,
+		}
+		return roleOrder[result[i].Role] < roleOrder[result[j].Role]
+	})
+
+	return result, nil
+}
+
+func (r *MemoryRepository) GetMemberByID(memberID string) (*Member, error) {
+	member, exists := r.members[memberID]
+	if !exists {
+		return nil, fmt.Errorf("member not found")
+	}
+	return member, nil
+}
+
+func (r *MemoryRepository) UpdateMember(member *Member) error {
+	_, exists := r.members[member.ID]
+	if !exists {
+		return fmt.Errorf("member not found")
+	}
+	r.members[member.ID] = member
+	return nil
+}
+
+func (r *MemoryRepository) DeleteMember(memberID string) error {
+	_, exists := r.members[memberID]
+	if !exists {
+		return fmt.Errorf("member not found")
+	}
+	delete(r.members, memberID)
+	return nil
+}

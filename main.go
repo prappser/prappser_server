@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/prappser/prappser_server/internal"
+	"github.com/prappser/prappser_server/internal/application"
 	"github.com/prappser/prappser_server/internal/keys"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
@@ -29,14 +30,20 @@ func main() {
 		return
 	}
 
+	// Initialize user components
 	userRepository := user.NewSQLite3UserRepository(db)
 	userService := user.NewUserService(userRepository, config.Users, privateKey, publicKey)
 	userEndpoints := user.NewEndpoints(userRepository, config.Users, privateKey, publicKey, userService)
 	statusEndpoints := status.NewEndpoints("1.0.0")
+	
+	// Initialize application components
+	appRepository := application.NewSQLiteRepository(db)
+	appService := application.NewApplicationService(appRepository)
+	appEndpoints := application.NewApplicationEndpoints(appService)
 
-	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService)
+	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService, appEndpoints)
 
-	if err := fasthttp.ListenAndServe(":8080", requestHandler); err != nil {
+	if err := fasthttp.ListenAndServe(":4545", requestHandler); err != nil {
 		log.Fatal().Err(err).Msg("Error starting server")
 	}
 }

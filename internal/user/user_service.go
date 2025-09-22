@@ -44,9 +44,9 @@ func (us *UserService) GenerateJWT(user *User) (string, int64, error) {
 	expiresAt := time.Now().Add(time.Duration(us.config.JWTExpirationHours) * time.Hour).Unix()
 
 	claims := JWTClaims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
+		UserPublicKey: user.PublicKey,
+		Username:      user.Username,
+		Role:          user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Unix(expiresAt, 0)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -73,7 +73,7 @@ func (us *UserService) ValidateJWT(tokenString string) (*User, error) {
 	}
 
 	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
-		user, err := us.userRepository.GetUserByID(claims.UserID)
+		user, err := us.userRepository.GetUserByPublicKey(claims.UserPublicKey)
 		if err != nil {
 			return nil, err
 		}

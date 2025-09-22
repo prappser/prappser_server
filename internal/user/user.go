@@ -28,17 +28,15 @@ const (
 )
 
 type User struct {
-	ID        string `json:"id"`
-	PublicKey string `json:"public_key"`
+	PublicKey string `json:"publicKey"`
 	Username  string `json:"username"`
 	Role      string `json:"role"`
-	CreatedAt int64  `json:"created_at"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 type UserRepository interface {
 	CreateUser(user *User) error
 	GetUserByPublicKey(publicKey string) (*User, error)
-	GetUserByID(id string) (*User, error)
 	GetUserByUsername(username string) (*User, error)
 }
 
@@ -67,20 +65,20 @@ type userAuthJWSClaims struct {
 }
 
 type JWTClaims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	UserPublicKey string `json:"userPublicKey"`
+	Username      string `json:"username"`
+	Role          string `json:"role"`
 	jwt.RegisteredClaims
 }
 
 type ChallengeResponse struct {
 	Challenge string `json:"challenge"`
-	ExpiresAt int64  `json:"expires_at"`
+	ExpiresAt int64  `json:"expiresAt"`
 }
 
 type LoginResponse struct {
 	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
+	ExpiresAt int64  `json:"expiresAt"`
 }
 
 type challengeInfo struct {
@@ -136,21 +134,12 @@ func (ue UserEndpoints) OwnerRegister(ctx *fasthttp.RequestCtx) {
 	if err == nil && existingUser != nil {
 		ctx.SetStatusCode(fasthttp.StatusCreated)
 		ctx.SetContentType("application/json")
-		response := map[string]string{"message": "Owner registered successfully", "user_id": existingUser.ID}
+		response := map[string]string{"message": "Owner registered successfully", "publicKey": existingUser.PublicKey}
 		json.NewEncoder(ctx).Encode(response)
 		return
 	}
 
-	// Generate user ID
-	userID, err := generateUserID()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate user ID")
-		ctx.Error("Internal server error", fasthttp.StatusInternalServerError)
-		return
-	}
-
 	newUser := &User{
-		ID:        userID,
 		PublicKey: registerJWSClaims.PublicKey,
 		Username:  registerJWSClaims.Username,
 		Role:      RoleOwner,
@@ -166,7 +155,7 @@ func (ue UserEndpoints) OwnerRegister(ctx *fasthttp.RequestCtx) {
 
 	ctx.SetStatusCode(fasthttp.StatusCreated)
 	ctx.SetContentType("application/json")
-	response := map[string]string{"message": "Owner registered successfully", "user_id": userID}
+	response := map[string]string{"message": "Owner registered successfully", "publicKey": registerJWSClaims.PublicKey}
 	json.NewEncoder(ctx).Encode(response)
 }
 
@@ -346,15 +335,6 @@ func (ue UserEndpoints) verifyUserAuthJWS(signedJWS string, ttlSec int) (*userAu
 	return &claims, nil
 }
 
-func generateUserID() (string, error) {
-	bytes := make([]byte, 16)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(bytes), nil
-}
-
 func generateChallenge() (string, error) {
 	bytes := make([]byte, 32)
 	_, err := rand.Read(bytes)
@@ -373,7 +353,7 @@ func (ue UserEndpoints) GetServerPublicKey(ctx *fasthttp.RequestCtx) {
 	}
 
 	response := map[string]string{
-		"public_key": string(pem.EncodeToMemory(publicKeyPEM)),
+		"publicKey": string(pem.EncodeToMemory(publicKeyPEM)),
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
