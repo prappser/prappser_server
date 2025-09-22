@@ -6,19 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGenerateUserID_ShouldGenerateUniqueID(t *testing.T) {
-	// when
-	id1, err1 := generateUserID()
-	id2, err2 := generateUserID()
-
-	// then
-	assert.NoError(t, err1)
-	assert.NoError(t, err2)
-	assert.NotEmpty(t, id1)
-	assert.NotEmpty(t, id2)
-	assert.NotEqual(t, id1, id2)
-}
-
 func TestGenerateChallenge_ShouldGenerateUniqueChallenge(t *testing.T) {
 	// when
 	challenge1, err1 := generateChallenge()

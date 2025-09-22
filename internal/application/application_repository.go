@@ -1,0 +1,23 @@
+package application
+
+type ApplicationRepository interface {
+	CreateApplication(app *Application) error
+	GetApplicationByID(id string) (*Application, error)
+	GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error)
+	GetApplicationState(id string) (*ApplicationState, error)
+	UpdateApplicationTimestamp(id string) error
+	DeleteApplication(id string) error
+	
+	CreateComponentGroup(group *ComponentGroup) error
+	GetComponentGroupsByApplicationID(appID string) ([]*ComponentGroup, error)
+	
+	CreateComponent(component *Component) error
+	GetComponentsByGroupID(groupID string) ([]*Component, error)
+	GetComponentsByApplicationID(appID string) ([]*Component, error)
+	
+	CreateMember(member *Member) error
+	GetMembersByApplicationID(appID string) ([]*Member, error)
+	GetMemberByID(memberID string) (*Member, error)
+	UpdateMember(member *Member) error
+	DeleteMember(memberID string) error
+}
