@@ -1,0 +1,110 @@
+package event
+
+import (
+	"encoding/json"
+)
+
+// EventType represents the type of event
+type EventType string
+
+const (
+	EventTypeMemberAdded            EventType = "member_added"
+	EventTypeMemberRemoved          EventType = "member_removed"
+	EventTypeMemberRoleChanged      EventType = "member_role_changed"
+	EventTypeApplicationDataChanged EventType = "application_data_changed"
+	EventTypeApplicationDeleted     EventType = "application_deleted"
+	EventTypeInviteRevoked          EventType = "invite_revoked"
+)
+
+// Event represents a system event for application lifecycle changes
+type Event struct {
+	ID                 string                 `json:"id"`
+	CreatedAt          int64                  `json:"createdAt"`
+	Type               EventType              `json:"type"`
+	ApplicationID      string                 `json:"applicationId"`
+	CreatorPublicKey   string                 `json:"creatorPublicKey"`
+	Version            int                    `json:"version"`
+	Data               map[string]interface{} `json:"data"`
+}
+
+// MemberAddedData represents the data for a member_added event
+type MemberAddedData struct {
+	MemberPublicKey string `json:"memberPublicKey"`
+	Role            string `json:"role"`
+	InviteID        string `json:"inviteId"`
+}
+
+// MemberRemovedData represents the data for a member_removed event
+type MemberRemovedData struct {
+	MemberPublicKey string `json:"memberPublicKey"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+// MemberRoleChangedData represents the data for a member_role_changed event
+type MemberRoleChangedData struct {
+	MemberPublicKey string `json:"memberPublicKey"`
+	OldRole         string `json:"oldRole"`
+	NewRole         string `json:"newRole"`
+}
+
+// ApplicationDataChangedData represents the data for an application_data_changed event
+type ApplicationDataChangedData struct {
+	Version       int      `json:"version"`
+	ChangedFields []string `json:"changedFields,omitempty"`
+}
+
+// ApplicationDeletedData represents the data for an application_deleted event
+type ApplicationDeletedData struct {
+	DeletedAt int64 `json:"deletedAt"`
+}
+
+// InviteRevokedData represents the data for an invite_revoked event
+type InviteRevokedData struct {
+	InviteID string `json:"inviteId"`
+}
+
+// EventsResponse represents the response for GET /events endpoint
+type EventsResponse struct {
+	Events             []*Event `json:"events,omitempty"`
+	HasMore            bool     `json:"hasMore"`
+	FullResyncRequired bool     `json:"fullResyncRequired,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
+}
+
+// NewEvent creates a new event with the given parameters
+func NewEvent(id string, eventType EventType, appID, creatorPublicKey string, data map[string]interface{}) *Event {
+	return &Event{
+		ID:               id,
+		CreatedAt:        0, // Will be set by repository
+		Type:             eventType,
+		ApplicationID:    appID,
+		CreatorPublicKey: creatorPublicKey,
+		Version:          1,
+		Data:             data,
+	}
+}
+
+// MarshalData converts a typed data structure to map[string]interface{} for storage
+func MarshalData(data interface{}) (map[string]interface{}, error) {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// UnmarshalData converts map[string]interface{} to a typed structure
+func UnmarshalData(data map[string]interface{}, target interface{}) error {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(jsonBytes, target)
+}
