@@ -10,7 +10,7 @@ import (
 
 type Config struct {
 	Users       user.Config `mapstructure:"users"`
-	ServerURL   string      `mapstructure:"server_url"`
+	Port        string      `mapstructure:"port"`
 	ExternalURL string      `mapstructure:"external_url"`
 }
 
@@ -27,9 +27,14 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Allow SERVER_URL environment variable to override config
-	if serverURL := os.Getenv("SERVER_URL"); serverURL != "" {
-		config.ServerURL = serverURL
+	// Allow PORT environment variable to override config
+	if port := os.Getenv("PORT"); port != "" {
+		config.Port = port
+	}
+
+	// Default port
+	if config.Port == "" {
+		config.Port = "4545"
 	}
 
 	// Allow EXTERNAL_URL environment variable to override config
@@ -37,15 +42,9 @@ func LoadConfig() (*Config, error) {
 		config.ExternalURL = externalURL
 	}
 
-	// Default to localhost for development
-	if config.ServerURL == "" {
-		config.ServerURL = "http://localhost:4545"
-	}
-
-	// If external URL is not set, use server URL
-	// This is useful for development with ngrok/cloudflare tunnels
+	// If external URL is not set, construct from localhost and port
 	if config.ExternalURL == "" {
-		config.ExternalURL = config.ServerURL
+		config.ExternalURL = fmt.Sprintf("http://localhost:%s", config.Port)
 	}
 
 	return &config, nil

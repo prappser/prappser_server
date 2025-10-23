@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/prappser/prappser_server/internal"
 	"github.com/prappser/prappser_server/internal/application"
 	"github.com/prappser/prappser_server/internal/event"
@@ -57,11 +59,17 @@ func main() {
 	invitationRepository := invitation.NewSQLiteInvitationRepository(db)
 	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db, config.ExternalURL)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
-	log.Info().Str("externalURL", config.ExternalURL).Msg("Using external URL for invitation tokens")
+
+	log.Info().
+		Str("port", config.Port).
+		Str("externalURL", config.ExternalURL).
+		Msg("Server configuration")
 
 	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
 
-	if err := fasthttp.ListenAndServe(":4545", requestHandler); err != nil {
+	serverAddr := fmt.Sprintf(":%s", config.Port)
+	log.Info().Str("addr", serverAddr).Msg("Starting server")
+	if err := fasthttp.ListenAndServe(serverAddr, requestHandler); err != nil {
 		log.Fatal().Err(err).Msg("Error starting server")
 	}
 }
