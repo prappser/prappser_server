@@ -2,13 +2,15 @@ package internal
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/prappser/prappser_server/internal/user"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Users user.Config `mapstructure:"users"`
+	Users     user.Config `mapstructure:"users"`
+	ServerURL string      `mapstructure:"server_url"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -23,5 +25,16 @@ func LoadConfig() (*Config, error) {
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	// Allow SERVER_URL environment variable to override config
+	if serverURL := os.Getenv("SERVER_URL"); serverURL != "" {
+		config.ServerURL = serverURL
+	}
+
+	// Default to localhost for development
+	if config.ServerURL == "" {
+		config.ServerURL = "http://localhost:4545"
+	}
+
 	return &config, nil
 }

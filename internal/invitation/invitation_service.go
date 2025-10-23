@@ -27,9 +27,10 @@ type InvitationService struct {
 	appRepo       application.ApplicationRepository
 	eventProducer EventProducer
 	db            *sql.DB
+	serverURL     string
 }
 
-func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, eventProducer EventProducer, db *sql.DB) *InvitationService {
+func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, eventProducer EventProducer, db *sql.DB, serverURL string) *InvitationService {
 	return &InvitationService{
 		repo:          repo,
 		privateKey:    privateKey,
@@ -37,6 +38,7 @@ func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey,
 		appRepo:       appRepo,
 		eventProducer: eventProducer,
 		db:            db,
+		serverURL:     serverURL,
 	}
 }
 
@@ -98,18 +100,17 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 		expiresAt = &exp
 	}
 
-	token, err := s.GenerateToken(invite.ID, invite.ApplicationID, invite.Role, expiresAt)
+	token, err := s.GenerateToken(invite.ID, invite.ApplicationID, invite.Role, s.serverURL, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
-	// Build response
-	// TODO: Get base URL from config
-	baseURL := "https://prappser.com"
+	// Build response - use HTTPS PWA URL for sharing
+	pwaURL := "https://prappser-app.netlify.app"
 	response := &InvitationResponse{
 		ID:        invite.ID,
 		Token:     token,
-		URL:       fmt.Sprintf("%s/join?token=%s", baseURL, token),
+		URL:       fmt.Sprintf("%s/join?token=%s", pwaURL, token),
 		DeepLink:  fmt.Sprintf("prappser://join?token=%s", token),
 		ExpiresAt: expiresAt,
 		CreatedAt: now,
@@ -119,13 +120,14 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 }
 
 // GenerateToken creates a signed JWT token for an invitation
-func (s *InvitationService) GenerateToken(inviteID, appID, role string, expiresAt *int64) (string, error) {
+func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL string, expiresAt *int64) (string, error) {
 	now := time.Now()
 
 	claims := InviteTokenClaims{
 		InviteID:      inviteID,
 		ApplicationID: appID,
 		Role:          role,
+		ServerURL:     serverURL,
 		IssuedAt:      now.Unix(),
 		ExpiresAt:     expiresAt,
 	}
@@ -141,12 +143,13 @@ func (s *InvitationService) GenerateToken(inviteID, appID, role string, expiresA
 
 	// Create token with custom claims
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"inviteId": claims.InviteID,
-		"appId":    claims.ApplicationID,
-		"role":     claims.Role,
-		"iat":      claims.IssuedAt,
-		"exp":      claims.ExpiresAt,
-		"nbf":      registeredClaims.NotBefore.Unix(),
+		"inviteId":  claims.InviteID,
+		"appId":     claims.ApplicationID,
+		"role":      claims.Role,
+		"serverUrl": claims.ServerURL,
+		"iat":       claims.IssuedAt,
+		"exp":       claims.ExpiresAt,
+		"nbf":       registeredClaims.NotBefore.Unix(),
 	})
 
 	// Sign token
@@ -180,6 +183,11 @@ func (s *InvitationService) ValidateToken(tokenString string) (*InviteTokenClaim
 			ApplicationID: claims["appId"].(string),
 			Role:          claims["role"].(string),
 			IssuedAt:      int64(claims["iat"].(float64)),
+		}
+
+		// ServerURL is required (added in this version)
+		if serverURL, ok := claims["serverUrl"].(string); ok {
+			inviteClaims.ServerURL = serverURL
 		}
 
 		// ExpiresAt is optional

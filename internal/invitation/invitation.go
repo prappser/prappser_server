@@ -57,6 +57,7 @@ type InviteTokenClaims struct {
 	InviteID      string `json:"inviteId"`
 	ApplicationID string `json:"appId"`
 	Role          string `json:"role"`
+	ServerURL     string `json:"serverUrl"`
 	IssuedAt      int64  `json:"iat"`
 	ExpiresAt     *int64 `json:"exp,omitempty"`
 }

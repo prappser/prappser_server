@@ -55,7 +55,7 @@ func main() {
 
 	// Initialize invitation components (needs event service and app repo)
 	invitationRepository := invitation.NewSQLiteInvitationRepository(db)
-	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db)
+	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db, config.ServerURL)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
 
 	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
