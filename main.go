@@ -55,8 +55,9 @@ func main() {
 
 	// Initialize invitation components (needs event service and app repo)
 	invitationRepository := invitation.NewSQLiteInvitationRepository(db)
-	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db, config.ServerURL)
+	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db, config.ExternalURL)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
+	log.Info().Str("externalURL", config.ExternalURL).Msg("Using external URL for invitation tokens")
 
 	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
 

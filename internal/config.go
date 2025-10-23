@@ -9,8 +9,9 @@ import (
 )
 
 type Config struct {
-	Users     user.Config `mapstructure:"users"`
-	ServerURL string      `mapstructure:"server_url"`
+	Users       user.Config `mapstructure:"users"`
+	ServerURL   string      `mapstructure:"server_url"`
+	ExternalURL string      `mapstructure:"external_url"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -31,9 +32,20 @@ func LoadConfig() (*Config, error) {
 		config.ServerURL = serverURL
 	}
 
+	// Allow EXTERNAL_URL environment variable to override config
+	if externalURL := os.Getenv("EXTERNAL_URL"); externalURL != "" {
+		config.ExternalURL = externalURL
+	}
+
 	// Default to localhost for development
 	if config.ServerURL == "" {
 		config.ServerURL = "http://localhost:4545"
+	}
+
+	// If external URL is not set, use server URL
+	// This is useful for development with ngrok/cloudflare tunnels
+	if config.ExternalURL == "" {
+		config.ExternalURL = config.ServerURL
 	}
 
 	return &config, nil

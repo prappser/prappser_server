@@ -27,10 +27,10 @@ type InvitationService struct {
 	appRepo       application.ApplicationRepository
 	eventProducer EventProducer
 	db            *sql.DB
-	serverURL     string
+	externalURL   string
 }
 
-func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, eventProducer EventProducer, db *sql.DB, serverURL string) *InvitationService {
+func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, eventProducer EventProducer, db *sql.DB, externalURL string) *InvitationService {
 	return &InvitationService{
 		repo:          repo,
 		privateKey:    privateKey,
@@ -38,7 +38,7 @@ func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey,
 		appRepo:       appRepo,
 		eventProducer: eventProducer,
 		db:            db,
-		serverURL:     serverURL,
+		externalURL:   externalURL,
 	}
 }
 
@@ -100,7 +100,7 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 		expiresAt = &exp
 	}
 
-	token, err := s.GenerateToken(invite.ID, invite.ApplicationID, invite.Role, s.serverURL, expiresAt)
+	token, err := s.GenerateToken(invite.ID, invite.ApplicationID, invite.Role, s.externalURL, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
