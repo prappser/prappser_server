@@ -7,6 +7,7 @@ type Application struct {
 	OwnerPublicKey  string           `json:"ownerPublicKey"`
 	UserPublicKey   string           `json:"userPublicKey"`
 	Name            string           `json:"name"`
+	IconName        *string          `json:"iconName,omitempty"`
 	CreatedAt       int64            `json:"createdAt"`
 	UpdatedAt       int64            `json:"updatedAt"`
 	ComponentGroups []ComponentGroup `json:"componentGroups,omitempty"`

@@ -16,20 +16,20 @@ func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
 }
 
 func (r *SQLiteRepository) CreateApplication(app *Application) error {
-	query := `INSERT INTO applications (id, owner_public_key, user_public_key, name, created_at, updated_at) 
-			  VALUES (?, ?, ?, ?, ?, ?)`
-	
-	_, err := r.db.Exec(query, app.ID, app.OwnerPublicKey, app.UserPublicKey, app.Name, app.CreatedAt, app.UpdatedAt)
+	query := `INSERT INTO applications (id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := r.db.Exec(query, app.ID, app.OwnerPublicKey, app.UserPublicKey, app.Name, app.IconName, app.CreatedAt, app.UpdatedAt)
 	return err
 }
 
 func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, created_at, updated_at 
+	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
 			  FROM applications WHERE id = ?`
-	
+
 	app := &Application{}
 	err := r.db.QueryRow(query, id).Scan(
-		&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.CreatedAt, &app.UpdatedAt,
+		&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt,
 	)
 	
 	if err == sql.ErrNoRows {
@@ -78,19 +78,19 @@ func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
 }
 
 func (r *SQLiteRepository) GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, created_at, updated_at 
+	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
 			  FROM applications WHERE owner_public_key = ? ORDER BY created_at DESC`
-	
+
 	rows, err := r.db.Query(query, ownerPublicKey)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var applications []*Application
 	for rows.Next() {
 		app := &Application{}
-		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.CreatedAt, &app.UpdatedAt)
+		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -466,7 +466,7 @@ func (r *SQLiteRepository) GetMemberByPublicKey(appID, publicKey string) (*Membe
 
 // GetApplicationsByMemberPublicKey returns all applications where the user is a member
 func (r *SQLiteRepository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error) {
-	query := `SELECT DISTINCT a.id, a.owner_public_key, a.user_public_key, a.name, a.created_at, a.updated_at
+	query := `SELECT DISTINCT a.id, a.owner_public_key, a.user_public_key, a.name, a.icon_name, a.created_at, a.updated_at
 			  FROM applications a
 			  INNER JOIN members m ON a.id = m.application_id
 			  WHERE m.public_key = ?
@@ -481,7 +481,7 @@ func (r *SQLiteRepository) GetApplicationsByMemberPublicKey(publicKey string) ([
 	var applications []*Application
 	for rows.Next() {
 		app := &Application{}
-		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.CreatedAt, &app.UpdatedAt)
+		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

@@ -16,6 +16,7 @@ CREATE TABLE applications (
     owner_public_key TEXT NOT NULL,
     user_public_key TEXT NOT NULL,
     name TEXT NOT NULL,
+    icon_name TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (owner_public_key) REFERENCES users(public_key) ON DELETE CASCADE,
