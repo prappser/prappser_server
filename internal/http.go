@@ -14,8 +14,9 @@ import (
 
 func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
-	
-	return func(ctx *fasthttp.RequestCtx) {
+	corsMiddleware := middleware.NewCORSMiddleware([]string{"*"})
+
+	handler := func(ctx *fasthttp.RequestCtx) {
 		path := string(ctx.Path())
 		
 		switch {
@@ -136,4 +137,6 @@ func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *statu
 			ctx.Error("Not Found", fasthttp.StatusNotFound)
 		}
 	}
+
+	return corsMiddleware.Handle(handler)
 }
