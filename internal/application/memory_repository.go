@@ -262,3 +262,62 @@ func (r *MemoryRepository) DeleteMember(memberID string) error {
 	delete(r.members, memberID)
 	return nil
 }
+
+// GetMemberByPublicKey returns a member by public key for a specific application
+func (r *MemoryRepository) GetMemberByPublicKey(appID, publicKey string) (*Member, error) {
+	for _, member := range r.members {
+		if member.ApplicationID == appID && member.PublicKey == publicKey {
+			return member, nil
+		}
+	}
+	return nil, fmt.Errorf("member not found")
+}
+
+// GetApplicationsByMemberPublicKey returns all applications where the user is a member
+func (r *MemoryRepository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error) {
+	// First, find all applications where user is a member
+	appIDSet := make(map[string]bool)
+	for _, member := range r.members {
+		if member.PublicKey == publicKey {
+			appIDSet[member.ApplicationID] = true
+		}
+	}
+
+	// Get full application details for each
+	var result []*Application
+	for appID := range appIDSet {
+		app, err := r.GetApplicationByID(appID)
+		if err != nil {
+			continue // Skip if app not found
+		}
+		result = append(result, app)
+	}
+
+	// Sort by creation time (newest first)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+
+	return result, nil
+}
+
+// IsMember checks if a user is a member of an application
+func (r *MemoryRepository) IsMember(appID, publicKey string) (bool, error) {
+	for _, member := range r.members {
+		if member.ApplicationID == appID && member.PublicKey == publicKey {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetMemberCount returns the number of members in an application
+func (r *MemoryRepository) GetMemberCount(appID string) (int, error) {
+	count := 0
+	for _, member := range r.members {
+		if member.ApplicationID == appID {
+			count++
+		}
+	}
+	return count, nil
+}

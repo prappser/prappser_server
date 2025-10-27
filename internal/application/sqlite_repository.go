@@ -16,20 +16,20 @@ func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
 }
 
 func (r *SQLiteRepository) CreateApplication(app *Application) error {
-	query := `INSERT INTO applications (id, owner_public_key, user_public_key, name, created_at, updated_at) 
-			  VALUES (?, ?, ?, ?, ?, ?)`
-	
-	_, err := r.db.Exec(query, app.ID, app.OwnerPublicKey, app.UserPublicKey, app.Name, app.CreatedAt, app.UpdatedAt)
+	query := `INSERT INTO applications (id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := r.db.Exec(query, app.ID, app.OwnerPublicKey, app.UserPublicKey, app.Name, app.IconName, app.CreatedAt, app.UpdatedAt)
 	return err
 }
 
 func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, created_at, updated_at 
+	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
 			  FROM applications WHERE id = ?`
-	
+
 	app := &Application{}
 	err := r.db.QueryRow(query, id).Scan(
-		&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.CreatedAt, &app.UpdatedAt,
+		&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt,
 	)
 	
 	if err == sql.ErrNoRows {
@@ -78,19 +78,19 @@ func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
 }
 
 func (r *SQLiteRepository) GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, created_at, updated_at 
+	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
 			  FROM applications WHERE owner_public_key = ? ORDER BY created_at DESC`
-	
+
 	rows, err := r.db.Query(query, ownerPublicKey)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var applications []*Application
 	for rows.Next() {
 		app := &Application{}
-		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.CreatedAt, &app.UpdatedAt)
+		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -413,20 +413,142 @@ func (r *SQLiteRepository) UpdateMember(member *Member) error {
 
 func (r *SQLiteRepository) DeleteMember(memberID string) error {
 	query := `DELETE FROM members WHERE id = ?`
-	
+
 	result, err := r.db.Exec(query, memberID)
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		return fmt.Errorf("member not found")
 	}
-	
+
 	return nil
+}
+
+// GetMemberByPublicKey returns a member by public key for a specific application
+func (r *SQLiteRepository) GetMemberByPublicKey(appID, publicKey string) (*Member, error) {
+	query := `SELECT id, application_id, name, role, public_key, avatar_bytes
+			  FROM members WHERE application_id = ? AND public_key = ?`
+
+	member := &Member{}
+	var roleStr string
+	var avatarBytes sql.NullString
+
+	err := r.db.QueryRow(query, appID, publicKey).Scan(
+		&member.ID,
+		&member.ApplicationID,
+		&member.Name,
+		&roleStr,
+		&member.PublicKey,
+		&avatarBytes,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("member not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	member.Role = MemberRole(roleStr)
+	if avatarBytes.Valid {
+		member.AvatarBytes = []byte(avatarBytes.String)
+	}
+
+	return member, nil
+}
+
+// GetApplicationsByMemberPublicKey returns all applications where the user is a member
+func (r *SQLiteRepository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error) {
+	query := `SELECT DISTINCT a.id, a.owner_public_key, a.user_public_key, a.name, a.icon_name, a.created_at, a.updated_at
+			  FROM applications a
+			  INNER JOIN members m ON a.id = m.application_id
+			  WHERE m.public_key = ?
+			  ORDER BY a.created_at DESC`
+
+	rows, err := r.db.Query(query, publicKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var applications []*Application
+	for rows.Next() {
+		app := &Application{}
+		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		// Load component groups for this application
+		groups, err := r.GetComponentGroupsByApplicationID(app.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert pointers to values and load components for each group
+		app.ComponentGroups = make([]ComponentGroup, len(groups))
+		for i, group := range groups {
+			app.ComponentGroups[i] = *group
+
+			components, err := r.GetComponentsByGroupID(group.ID)
+			if err != nil {
+				return nil, err
+			}
+
+			// Convert component pointers to values
+			app.ComponentGroups[i].Components = make([]Component, len(components))
+			for j, comp := range components {
+				app.ComponentGroups[i].Components[j] = *comp
+			}
+		}
+
+		// Load members
+		members, err := r.GetMembersByApplicationID(app.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert member pointers to values
+		app.Members = make([]Member, len(members))
+		for i, member := range members {
+			app.Members[i] = *member
+		}
+
+		applications = append(applications, app)
+	}
+
+	return applications, rows.Err()
+}
+
+// IsMember checks if a user is a member of an application
+func (r *SQLiteRepository) IsMember(appID, publicKey string) (bool, error) {
+	query := `SELECT COUNT(*) FROM members WHERE application_id = ? AND public_key = ?`
+
+	var count int
+	err := r.db.QueryRow(query, appID, publicKey).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+// GetMemberCount returns the number of members in an application
+func (r *SQLiteRepository) GetMemberCount(appID string) (int, error) {
+	query := `SELECT COUNT(*) FROM members WHERE application_id = ?`
+
+	var count int
+	err := r.db.QueryRow(query, appID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }

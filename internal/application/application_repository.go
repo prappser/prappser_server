@@ -18,6 +18,12 @@ type ApplicationRepository interface {
 	CreateMember(member *Member) error
 	GetMembersByApplicationID(appID string) ([]*Member, error)
 	GetMemberByID(memberID string) (*Member, error)
+	GetMemberByPublicKey(appID, publicKey string) (*Member, error)
 	UpdateMember(member *Member) error
 	DeleteMember(memberID string) error
+
+	// Invitation-related methods
+	GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error)
+	IsMember(appID, publicKey string) (bool, error)
+	GetMemberCount(appID string) (int, error)
 }
