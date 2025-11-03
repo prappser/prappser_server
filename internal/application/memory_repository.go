@@ -68,22 +68,6 @@ func (r *MemoryRepository) GetApplicationByID(id string) (*Application, error) {
 	return &result, nil
 }
 
-func (r *MemoryRepository) GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error) {
-	var result []*Application
-	for _, app := range r.applications {
-		if app.OwnerPublicKey == ownerPublicKey {
-			result = append(result, app)
-		}
-	}
-
-	// Sort by creation time (newest first)
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt > result[j].CreatedAt
-	})
-
-	return result, nil
-}
-
 func (r *MemoryRepository) GetApplicationState(id string) (*ApplicationState, error) {
 	app, exists := r.applications[id]
 	if !exists {

@@ -3,7 +3,6 @@ package application
 type ApplicationRepository interface {
 	CreateApplication(app *Application) error
 	GetApplicationByID(id string) (*Application, error)
-	GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error)
 	GetApplicationState(id string) (*ApplicationState, error)
 	UpdateApplicationTimestamp(id string) error
 	DeleteApplication(id string) error

@@ -4,4 +4,6 @@ files/prappser.db
 .serena
 prappser_server
 pkg
-_debug
+__debug*
+.claude/dev-workflow/
+.claude/tmp/

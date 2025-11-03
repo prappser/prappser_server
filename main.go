@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 
 	"github.com/prappser/prappser_server/internal"
@@ -39,25 +41,35 @@ func main() {
 	userService := user.NewUserService(userRepository, config.Users, privateKey, publicKey)
 	userEndpoints := user.NewEndpoints(userRepository, config.Users, privateKey, publicKey, userService)
 	statusEndpoints := status.NewEndpoints("1.0.0")
-	
-	// Initialize application components
-	appRepository := application.NewSQLiteRepository(db)
-	appService := application.NewApplicationService(appRepository)
-	appEndpoints := application.NewApplicationEndpoints(appService)
 
-	// Initialize event components
+	// Initialize application repository
+	appRepository := application.NewSQLiteRepository(db)
+
+	// Initialize event components (must be before application service, needs app repository)
 	eventRepository := event.NewEventRepository(db)
-	eventService := event.NewEventService(eventRepository)
+	eventService := event.NewEventService(eventRepository, appRepository)
 	eventEndpoints := event.NewEventEndpoints(eventService)
+
+	// Initialize application service (events are now client-produced via POST /events)
+	appService := application.NewApplicationService(appRepository)
+
+	// Convert server public key to PEM format for application responses
+	publicKeyPEM := &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(publicKey),
+	}
+	serverPublicKeyString := string(pem.EncodeToMemory(publicKeyPEM))
+
+	appEndpoints := application.NewApplicationEndpoints(appService, serverPublicKeyString)
 
 	// Start event cleanup scheduler (runs daily at 2 AM, 7 days retention)
 	cleanupScheduler := event.NewCleanupScheduler(eventService, 7)
 	cleanupScheduler.Start()
 	log.Info().Msg("Event cleanup scheduler started (daily at 2 AM, 7 days retention)")
 
-	// Initialize invitation components (needs event service and app repo)
+	// Initialize invitation components (needs app repo, user repo, and event service)
 	invitationRepository := invitation.NewSQLiteInvitationRepository(db)
-	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, eventService, db, config.ExternalURL)
+	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, db, config.ExternalURL, userRepository, eventService)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
 
 	log.Info().
@@ -65,7 +77,7 @@ func main() {
 		Str("externalURL", config.ExternalURL).
 		Msg("Server configuration")
 
-	requestHandler := internal.NewRequestHandler(userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
+	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
 
 	serverAddr := fmt.Sprintf(":%s", config.Port)
 	log.Info().Str("addr", serverAddr).Msg("Starting server")

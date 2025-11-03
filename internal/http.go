@@ -12,9 +12,9 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
+func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
-	corsMiddleware := middleware.NewCORSMiddleware([]string{"*"})
+	corsMiddleware := middleware.NewCORSMiddleware(config.AllowedOrigins)
 
 	handler := func(ctx *fasthttp.RequestCtx) {
 		path := string(ctx.Path())
@@ -78,6 +78,20 @@ func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *statu
 			} else {
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
+		case strings.HasPrefix(path, "/applications/") && strings.HasSuffix(path, "/members/me"):
+			// Leave application endpoint: DELETE /applications/{appID}/members/me
+			parts := strings.Split(path, "/")
+			if len(parts) == 5 && parts[3] == "members" && parts[4] == "me" {
+				ctx.SetUserValue("appID", parts[2])
+				method := string(ctx.Method())
+				if method == "DELETE" {
+					authMiddleware.RequireAuth(appEndpoints.LeaveApplication)(ctx)
+				} else {
+					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+				}
+			} else {
+				ctx.Error("Not Found", fasthttp.StatusNotFound)
+			}
 		case strings.HasPrefix(path, "/applications/"):
 			// Extract application ID from path
 			parts := strings.Split(path, "/")
@@ -88,7 +102,7 @@ func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *statu
 				method := string(ctx.Method())
 				switch method {
 				case "GET":
-					authMiddleware.RequireRole(user.RoleOwner, appEndpoints.GetApplication)(ctx)
+					authMiddleware.RequireAuth(appEndpoints.GetApplication)(ctx)
 				case "DELETE":
 					authMiddleware.RequireRole(user.RoleOwner, appEndpoints.DeleteApplication)(ctx)
 				default:
@@ -109,26 +123,37 @@ func NewRequestHandler(userEndpoints *user.UserEndpoints, statusEndpoints *statu
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case strings.HasPrefix(path, "/invites/") && strings.HasSuffix(path, "/join"):
-			// POST /invites/{token}/join
+			// POST /invites/{token}/join (PUBLIC endpoint - no auth required)
 			parts := strings.Split(path, "/")
 			if len(parts) == 4 && parts[3] == "join" {
 				ctx.SetUserValue("token", parts[2])
 				method := string(ctx.Method())
 				if method == "POST" {
-					authMiddleware.RequireAuth(invitationEndpoints.JoinApplication)(ctx)
+					invitationEndpoints.JoinApplication(ctx) // No auth - endpoint creates user if needed
 				} else {
 					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 				}
 			} else {
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
+		case path == "/invites/check":
+			// POST /invites/check (PUBLIC endpoint - no auth required)
+			method := string(ctx.Method())
+			if method == "POST" {
+				invitationEndpoints.CheckInvitation(ctx)
+			} else {
+				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+			}
 
 		// Event endpoints
 		case path == "/events":
-			// GET /events?since={eventId}&limit={limit}
 			method := string(ctx.Method())
 			if method == "GET" {
+				// GET /events?since={eventId}&limit={limit}
 				authMiddleware.RequireAuth(eventEndpoints.GetEvents)(ctx)
+			} else if method == "POST" {
+				// POST /events - Submit event for validation and processing
+				authMiddleware.RequireAuth(eventEndpoints.SubmitEvent)(ctx)
 			} else {
 				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 			}

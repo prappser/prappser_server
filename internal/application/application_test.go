@@ -18,22 +18,20 @@ func createTestUser() *user.User {
 
 func createBasicApplication(testUser *user.User, appName, appID string) *Application {
 	return &Application{
-		ID:             appID,
-		Name:           appName,
-		UserPublicKey:  testUser.PublicKey,
-		OwnerPublicKey: testUser.PublicKey,
+		ID:   appID,
+		Name: appName,
 		Members: []Member{
 			{
-				ID:          "member-1",
-				Name:        testUser.Username,
-				Role:        MemberRoleOwner,
-				PublicKey:   testUser.PublicKey,
-				AvatarBytes: []byte("test-avatar-data"),
+				ID:           appID + "-member-1", // Make member ID unique per application
+				Name:         testUser.Username,
+				Role:         MemberRoleOwner,
+				PublicKey:    testUser.PublicKey,
+				AvatarBase64: "dGVzdC1hdmF0YXItZGF0YQ==", // "test-avatar-data" in base64
 			},
 		},
 		ComponentGroups: []ComponentGroup{
 			{
-				ID:         "group-1",
+				ID:         appID + "-group-1", // Also make group ID unique
 				Name:       "Default Group",
 				Index:      0,
 				Components: []Component{},
@@ -49,17 +47,15 @@ func TestApplicationService_RegisterApplication_ShouldCreateApplicationWithCompo
 	appService := NewApplicationService(appRepo)
 
 	app := &Application{
-		ID:             "test-app-complex-id",
-		Name:           "Test App",
-		UserPublicKey:  testUser.PublicKey,
-		OwnerPublicKey: testUser.PublicKey,
+		ID:   "test-app-complex-id",
+		Name: "Test App",
 		Members: []Member{
 			{
-				ID:          "member-1",
-				Name:        testUser.Username,
-				Role:        MemberRoleOwner,
-				PublicKey:   testUser.PublicKey,
-				AvatarBytes: []byte("test-avatar-data"),
+				ID:           "member-1",
+				Name:         testUser.Username,
+				Role:         MemberRoleOwner,
+				PublicKey:    testUser.PublicKey,
+				AvatarBase64: "dGVzdC1hdmF0YXItZGF0YQ==", // "test-avatar-data" in base64
 			},
 		},
 		ComponentGroups: []ComponentGroup{
@@ -191,8 +187,8 @@ func TestApplicationService_GetApplication_ShouldReturnErrorForUnauthorizedUser(
 		t.Fatal("Expected error for unauthorized user, got nil")
 	}
 
-	if err.Error() != "unauthorized" {
-		t.Errorf("Expected 'unauthorized' error, got '%s'", err.Error())
+	if err.Error() != "unauthorized: not a member of this application" {
+		t.Errorf("Expected 'unauthorized: not a member of this application' error, got '%s'", err.Error())
 	}
 }
 

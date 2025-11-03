@@ -18,30 +18,38 @@ const (
 
 // Event represents a system event for application lifecycle changes
 type Event struct {
-	ID                 string                 `json:"id"`
-	CreatedAt          int64                  `json:"createdAt"`
-	Type               EventType              `json:"type"`
-	ApplicationID      string                 `json:"applicationId"`
-	CreatorPublicKey   string                 `json:"creatorPublicKey"`
-	Version            int                    `json:"version"`
-	Data               map[string]interface{} `json:"data"`
+	ID               string                 `json:"id"`
+	CreatedAt        int64                  `json:"createdAt"`
+	ApplicationID    string                 `json:"applicationId"`
+	SequenceNumber   int64                  `json:"sequence_number"`
+	Type             EventType              `json:"type"`
+	CreatorPublicKey string                 `json:"creatorPublicKey"`
+	Version          int                    `json:"version"`
+	Data             map[string]interface{} `json:"data"`
 }
 
 // MemberAddedData represents the data for a member_added event
 type MemberAddedData struct {
+	Version         int    `json:"version"`
+	ApplicationID   string `json:"applicationId"`
 	MemberPublicKey string `json:"memberPublicKey"`
+	MemberName      string `json:"memberName"`
 	Role            string `json:"role"`
 	InviteID        string `json:"inviteId"`
 }
 
 // MemberRemovedData represents the data for a member_removed event
 type MemberRemovedData struct {
+	Version         int    `json:"version"`
+	ApplicationID   string `json:"applicationId"`
 	MemberPublicKey string `json:"memberPublicKey"`
 	Reason          string `json:"reason,omitempty"`
 }
 
 // MemberRoleChangedData represents the data for a member_role_changed event
 type MemberRoleChangedData struct {
+	Version         int    `json:"version"`
+	ApplicationID   string `json:"applicationId"`
 	MemberPublicKey string `json:"memberPublicKey"`
 	OldRole         string `json:"oldRole"`
 	NewRole         string `json:"newRole"`
@@ -49,18 +57,23 @@ type MemberRoleChangedData struct {
 
 // ApplicationDataChangedData represents the data for an application_data_changed event
 type ApplicationDataChangedData struct {
-	Version       int      `json:"version"`
-	ChangedFields []string `json:"changedFields,omitempty"`
+	Version        int      `json:"version"`
+	ApplicationID  string   `json:"applicationId"`
+	ChangedFields  []string `json:"changedFields,omitempty"`
 }
 
 // ApplicationDeletedData represents the data for an application_deleted event
 type ApplicationDeletedData struct {
-	DeletedAt int64 `json:"deletedAt"`
+	Version       int    `json:"version"`
+	ApplicationID string `json:"applicationId"`
+	DeletedAt     int64  `json:"deletedAt"`
 }
 
 // InviteRevokedData represents the data for an invite_revoked event
 type InviteRevokedData struct {
-	InviteID string `json:"inviteId"`
+	Version       int    `json:"version"`
+	ApplicationID string `json:"applicationId"`
+	InviteID      string `json:"inviteId"`
 }
 
 // EventsResponse represents the response for GET /events endpoint
@@ -72,12 +85,12 @@ type EventsResponse struct {
 }
 
 // NewEvent creates a new event with the given parameters
-func NewEvent(id string, eventType EventType, appID, creatorPublicKey string, data map[string]interface{}) *Event {
+func NewEvent(id string, eventType EventType, creatorPublicKey string, data map[string]interface{}) *Event {
 	return &Event{
 		ID:               id,
 		CreatedAt:        0, // Will be set by repository
+		SequenceNumber:   0, // Will be set by repository
 		Type:             eventType,
-		ApplicationID:    appID,
 		CreatorPublicKey: creatorPublicKey,
 		Version:          1,
 		Data:             data,

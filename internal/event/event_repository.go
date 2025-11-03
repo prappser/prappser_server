@@ -15,11 +15,45 @@ func NewEventRepository(db *sql.DB) *EventRepository {
 	return &EventRepository{db: db}
 }
 
+// GetNextSequence retrieves the next sequence number for an application
+func (r *EventRepository) GetNextSequence(applicationID string) (int64, error) {
+	var maxSeq int64
+	query := `SELECT COALESCE(MAX(sequence_number), 0)
+			  FROM events
+			  WHERE application_id = ?`
+
+	err := r.db.QueryRow(query, applicationID).Scan(&maxSeq)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next sequence: %w", err)
+	}
+
+	return maxSeq + 1, nil
+}
+
 // Create inserts a new event into the database
 func (r *EventRepository) Create(event *Event) error {
 	// Set created_at if not already set
 	if event.CreatedAt == 0 {
 		event.CreatedAt = time.Now().Unix()
+	}
+
+	// Extract and set application ID from event data if not already set
+	if event.ApplicationID == "" {
+		appID, ok := event.Data["applicationId"].(string)
+		if ok && appID != "" {
+			event.ApplicationID = appID
+		}
+	}
+
+	// Assign sequence number if not already set
+	if event.SequenceNumber == 0 {
+		if event.ApplicationID != "" {
+			seq, err := r.GetNextSequence(event.ApplicationID)
+			if err != nil {
+				return fmt.Errorf("failed to get next sequence: %w", err)
+			}
+			event.SequenceNumber = seq
+		}
 	}
 
 	// Marshal data to JSON string
@@ -28,14 +62,15 @@ func (r *EventRepository) Create(event *Event) error {
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
-	query := `INSERT INTO events (id, created_at, type, application_id, creator_public_key, version, data)
-			  VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO events (id, created_at, application_id, sequence_number, type, creator_public_key, version, data)
+			  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = r.db.Exec(query,
 		event.ID,
 		event.CreatedAt,
-		string(event.Type),
 		event.ApplicationID,
+		event.SequenceNumber,
+		string(event.Type),
 		event.CreatorPublicKey,
 		event.Version,
 		string(dataJSON),
@@ -50,7 +85,7 @@ func (r *EventRepository) Create(event *Event) error {
 
 // GetByID retrieves a single event by ID
 func (r *EventRepository) GetByID(id string) (*Event, error) {
-	query := `SELECT id, created_at, type, application_id, creator_public_key, version, data
+	query := `SELECT id, created_at, application_id, sequence_number, type, creator_public_key, version, data
 			  FROM events WHERE id = ?`
 
 	event := &Event{}
@@ -60,8 +95,9 @@ func (r *EventRepository) GetByID(id string) (*Event, error) {
 	err := r.db.QueryRow(query, id).Scan(
 		&event.ID,
 		&event.CreatedAt,
-		&eventType,
 		&event.ApplicationID,
+		&event.SequenceNumber,
+		&eventType,
 		&event.CreatorPublicKey,
 		&event.Version,
 		&dataJSON,
@@ -84,8 +120,8 @@ func (r *EventRepository) GetByID(id string) (*Event, error) {
 	return event, nil
 }
 
-// GetSince retrieves events after a given event ID (UUID v7) for applications the user has access to
-// This method filters events based on user membership
+// GetSince retrieves events after a given event ID for applications the user is a member of
+// Filters events by user's application memberships for security and correctness
 func (r *EventRepository) GetSince(userPublicKey string, sinceEventID string, limit int) ([]*Event, bool, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100 // Default limit
@@ -95,35 +131,53 @@ func (r *EventRepository) GetSince(userPublicKey string, sinceEventID string, li
 	var args []interface{}
 
 	if sinceEventID == "" {
-		// Get latest events
-		query = `SELECT e.id, e.created_at, e.type, e.application_id, e.creator_public_key, e.version, e.data
+		// Get latest events for user's applications
+		query = `SELECT DISTINCT e.id, e.created_at, e.application_id, e.sequence_number,
+				        e.type, e.creator_public_key, e.version, e.data
 				 FROM events e
 				 INNER JOIN members m ON e.application_id = m.application_id
 				 WHERE m.public_key = ?
-				 ORDER BY e.created_at ASC, e.id ASC
+				 ORDER BY e.application_id ASC, e.sequence_number ASC, e.created_at ASC
 				 LIMIT ?`
 		args = []interface{}{userPublicKey, limit + 1}
 	} else {
-		// Get events after sinceEventID
-		// First, get the created_at timestamp of sinceEventID
+		// Get events after sinceEventID for user's applications
+		// First, get the application_id, sequence_number and created_at of sinceEventID
+		var sinceAppID string
+		var sinceSequence int64
 		var sinceCreatedAt int64
-		err := r.db.QueryRow("SELECT created_at FROM events WHERE id = ?", sinceEventID).Scan(&sinceCreatedAt)
+		err := r.db.QueryRow("SELECT application_id, sequence_number, created_at FROM events WHERE id = ?", sinceEventID).Scan(&sinceAppID, &sinceSequence, &sinceCreatedAt)
 		if err == sql.ErrNoRows {
-			// Event not found - might have been cleaned up
-			return nil, false, fmt.Errorf("since event not found")
+			// Event not found - might have been cleaned up, return all events for user
+			return r.GetSince(userPublicKey, "", limit)
 		}
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to get since event: %w", err)
 		}
 
-		query = `SELECT e.id, e.created_at, e.type, e.application_id, e.creator_public_key, e.version, e.data
+		// Query events after the cursor for ALL user's applications
+		// For the same application as sinceEventID, get events with higher sequence
+		// For other applications, get all events
+		query = `SELECT DISTINCT e.id, e.created_at, e.application_id, e.sequence_number,
+				        e.type, e.creator_public_key, e.version, e.data
 				 FROM events e
 				 INNER JOIN members m ON e.application_id = m.application_id
 				 WHERE m.public_key = ?
-				   AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?))
-				 ORDER BY e.created_at ASC, e.id ASC
+				   AND (
+				     e.application_id != ?
+				     OR (e.application_id = ? AND (
+				       e.sequence_number > ?
+				       OR (e.sequence_number = ? AND e.created_at > ?)
+				       OR (e.sequence_number = ? AND e.created_at = ? AND e.id > ?)
+				     ))
+				   )
+				 ORDER BY e.application_id ASC, e.sequence_number ASC, e.created_at ASC
 				 LIMIT ?`
-		args = []interface{}{userPublicKey, sinceCreatedAt, sinceCreatedAt, sinceEventID, limit + 1}
+		args = []interface{}{
+			userPublicKey,
+			sinceAppID, sinceAppID, sinceSequence, sinceSequence, sinceCreatedAt, sinceSequence, sinceCreatedAt, sinceEventID,
+			limit + 1,
+		}
 	}
 
 	rows, err := r.db.Query(query, args...)
@@ -141,8 +195,9 @@ func (r *EventRepository) GetSince(userPublicKey string, sinceEventID string, li
 		err := rows.Scan(
 			&event.ID,
 			&event.CreatedAt,
-			&eventType,
 			&event.ApplicationID,
+			&event.SequenceNumber,
+			&eventType,
 			&event.CreatorPublicKey,
 			&event.Version,
 			&dataJSON,
@@ -186,10 +241,10 @@ func (r *EventRepository) GetByApplicationID(appID string, limit int) ([]*Event,
 		limit = 100
 	}
 
-	query := `SELECT id, created_at, type, application_id, creator_public_key, version, data
+	query := `SELECT id, created_at, application_id, sequence_number, type, creator_public_key, version, data
 			  FROM events
 			  WHERE application_id = ?
-			  ORDER BY created_at DESC, id DESC
+			  ORDER BY sequence_number ASC, created_at ASC
 			  LIMIT ?`
 
 	rows, err := r.db.Query(query, appID, limit)
@@ -207,8 +262,9 @@ func (r *EventRepository) GetByApplicationID(appID string, limit int) ([]*Event,
 		err := rows.Scan(
 			&event.ID,
 			&event.CreatedAt,
-			&eventType,
 			&event.ApplicationID,
+			&event.SequenceNumber,
+			&eventType,
 			&event.CreatorPublicKey,
 			&event.Version,
 			&dataJSON,

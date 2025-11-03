@@ -2,6 +2,7 @@ package application
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -16,20 +17,20 @@ func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
 }
 
 func (r *SQLiteRepository) CreateApplication(app *Application) error {
-	query := `INSERT INTO applications (id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at)
-			  VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO applications (id, name, icon_name, server_public_key, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.Exec(query, app.ID, app.OwnerPublicKey, app.UserPublicKey, app.Name, app.IconName, app.CreatedAt, app.UpdatedAt)
+	_, err := r.db.Exec(query, app.ID, app.Name, app.IconName, app.ServerPublicKey, app.CreatedAt, app.UpdatedAt)
 	return err
 }
 
 func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
+	query := `SELECT id, name, icon_name, server_public_key, created_at, updated_at
 			  FROM applications WHERE id = ?`
 
 	app := &Application{}
 	err := r.db.QueryRow(query, id).Scan(
-		&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt,
+		&app.ID, &app.Name, &app.IconName, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt,
 	)
 	
 	if err == sql.ErrNoRows {
@@ -75,65 +76,6 @@ func (r *SQLiteRepository) GetApplicationByID(id string) (*Application, error) {
 	}
 	
 	return app, nil
-}
-
-func (r *SQLiteRepository) GetApplicationsByOwnerPublicKey(ownerPublicKey string) ([]*Application, error) {
-	query := `SELECT id, owner_public_key, user_public_key, name, icon_name, created_at, updated_at
-			  FROM applications WHERE owner_public_key = ? ORDER BY created_at DESC`
-
-	rows, err := r.db.Query(query, ownerPublicKey)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var applications []*Application
-	for rows.Next() {
-		app := &Application{}
-		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
-		if err != nil {
-			return nil, err
-		}
-		
-		// Load component groups for this application
-		groups, err := r.GetComponentGroupsByApplicationID(app.ID)
-		if err != nil {
-			return nil, err
-		}
-		
-		// Convert pointers to values and load components for each group
-		app.ComponentGroups = make([]ComponentGroup, len(groups))
-		for i, group := range groups {
-			app.ComponentGroups[i] = *group
-			
-			components, err := r.GetComponentsByGroupID(group.ID)
-			if err != nil {
-				return nil, err
-			}
-			
-			// Convert component pointers to values
-			app.ComponentGroups[i].Components = make([]Component, len(components))
-			for j, comp := range components {
-				app.ComponentGroups[i].Components[j] = *comp
-			}
-		}
-		
-		// Load members for this application
-		members, err := r.GetMembersByApplicationID(app.ID)
-		if err != nil {
-			return nil, err
-		}
-		
-		// Convert member pointers to values
-		app.Members = make([]Member, len(members))
-		for i, member := range members {
-			app.Members[i] = *member
-		}
-		
-		applications = append(applications, app)
-	}
-	
-	return applications, rows.Err()
 }
 
 func (r *SQLiteRepository) GetApplicationState(id string) (*ApplicationState, error) {
@@ -312,10 +254,16 @@ func (r *SQLiteRepository) GetComponentsByApplicationID(appID string) ([]*Compon
 }
 
 func (r *SQLiteRepository) CreateMember(member *Member) error {
-	query := `INSERT INTO members (id, application_id, name, role, public_key, avatar_bytes) 
+	query := `INSERT INTO members (id, application_id, name, role, public_key, avatar_bytes)
 			  VALUES (?, ?, ?, ?, ?, ?)`
-	
-	_, err := r.db.Exec(query, member.ID, member.ApplicationID, member.Name, string(member.Role), member.PublicKey, member.AvatarBytes)
+
+	// Convert base64 string to bytes for database storage
+	var avatarBytes []byte
+	if member.AvatarBase64 != "" {
+		avatarBytes, _ = base64.StdEncoding.DecodeString(member.AvatarBase64)
+	}
+
+	_, err := r.db.Exec(query, member.ID, member.ApplicationID, member.Name, string(member.Role), member.PublicKey, avatarBytes)
 	return err
 }
 
@@ -334,7 +282,7 @@ func (r *SQLiteRepository) GetMembersByApplicationID(appID string) ([]*Member, e
 		member := &Member{}
 		var roleStr string
 		var avatarBytes sql.NullString
-		
+
 		err := rows.Scan(
 			&member.ID,
 			&member.ApplicationID,
@@ -346,12 +294,13 @@ func (r *SQLiteRepository) GetMembersByApplicationID(appID string) ([]*Member, e
 		if err != nil {
 			return nil, err
 		}
-		
+
 		member.Role = MemberRole(roleStr)
-		if avatarBytes.Valid {
-			member.AvatarBytes = []byte(avatarBytes.String)
+		// Convert bytes from database to base64 string for API response
+		if avatarBytes.Valid && avatarBytes.String != "" {
+			member.AvatarBase64 = base64.StdEncoding.EncodeToString([]byte(avatarBytes.String))
 		}
-		
+
 		members = append(members, member)
 	}
 	
@@ -383,31 +332,38 @@ func (r *SQLiteRepository) GetMemberByID(memberID string) (*Member, error) {
 	}
 	
 	member.Role = MemberRole(roleStr)
-	if avatarBytes.Valid {
-		member.AvatarBytes = []byte(avatarBytes.String)
+	// Convert bytes from database to base64 string for API response
+	if avatarBytes.Valid && avatarBytes.String != "" {
+		member.AvatarBase64 = base64.StdEncoding.EncodeToString([]byte(avatarBytes.String))
 	}
-	
+
 	return member, nil
 }
 
 func (r *SQLiteRepository) UpdateMember(member *Member) error {
-	query := `UPDATE members SET name = ?, role = ?, public_key = ?, avatar_bytes = ? 
+	query := `UPDATE members SET name = ?, role = ?, public_key = ?, avatar_bytes = ?
 			  WHERE id = ?`
-	
-	result, err := r.db.Exec(query, member.Name, string(member.Role), member.PublicKey, member.AvatarBytes, member.ID)
+
+	// Convert base64 string to bytes for database storage
+	var avatarBytes []byte
+	if member.AvatarBase64 != "" {
+		avatarBytes, _ = base64.StdEncoding.DecodeString(member.AvatarBase64)
+	}
+
+	result, err := r.db.Exec(query, member.Name, string(member.Role), member.PublicKey, avatarBytes, member.ID)
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		return fmt.Errorf("member not found")
 	}
-	
+
 	return nil
 }
 
@@ -457,8 +413,9 @@ func (r *SQLiteRepository) GetMemberByPublicKey(appID, publicKey string) (*Membe
 	}
 
 	member.Role = MemberRole(roleStr)
-	if avatarBytes.Valid {
-		member.AvatarBytes = []byte(avatarBytes.String)
+	// Convert bytes from database to base64 string for API response
+	if avatarBytes.Valid && avatarBytes.String != "" {
+		member.AvatarBase64 = base64.StdEncoding.EncodeToString([]byte(avatarBytes.String))
 	}
 
 	return member, nil
@@ -466,7 +423,7 @@ func (r *SQLiteRepository) GetMemberByPublicKey(appID, publicKey string) (*Membe
 
 // GetApplicationsByMemberPublicKey returns all applications where the user is a member
 func (r *SQLiteRepository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error) {
-	query := `SELECT DISTINCT a.id, a.owner_public_key, a.user_public_key, a.name, a.icon_name, a.created_at, a.updated_at
+	query := `SELECT DISTINCT a.id, a.name, a.icon_name, a.server_public_key, a.created_at, a.updated_at
 			  FROM applications a
 			  INNER JOIN members m ON a.id = m.application_id
 			  WHERE m.public_key = ?
@@ -481,7 +438,7 @@ func (r *SQLiteRepository) GetApplicationsByMemberPublicKey(publicKey string) ([
 	var applications []*Application
 	for rows.Next() {
 		app := &Application{}
-		err := rows.Scan(&app.ID, &app.OwnerPublicKey, &app.UserPublicKey, &app.Name, &app.IconName, &app.CreatedAt, &app.UpdatedAt)
+		err := rows.Scan(&app.ID, &app.Name, &app.IconName, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

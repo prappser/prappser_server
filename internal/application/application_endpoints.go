@@ -8,12 +8,14 @@ import (
 )
 
 type ApplicationEndpoints struct {
-	appService *ApplicationService
+	appService      *ApplicationService
+	serverPublicKey string
 }
 
-func NewApplicationEndpoints(appService *ApplicationService) *ApplicationEndpoints {
+func NewApplicationEndpoints(appService *ApplicationService, serverPublicKey string) *ApplicationEndpoints {
 	return &ApplicationEndpoints{
-		appService: appService,
+		appService:      appService,
+		serverPublicKey: serverPublicKey,
 	}
 }
 
@@ -21,7 +23,7 @@ func NewApplicationEndpoints(appService *ApplicationService) *ApplicationEndpoin
 func (ae *ApplicationEndpoints) RegisterApplication(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -44,14 +46,15 @@ func (ae *ApplicationEndpoints) RegisterApplication(ctx *fasthttp.RequestCtx) {
 		ctx.Error("Application name is required", fasthttp.StatusBadRequest)
 		return
 	}
-	if app.UserPublicKey == "" {
-		ctx.Error("User public key is required", fasthttp.StatusBadRequest)
+	// Validate members (service layer will validate owner exists)
+	if len(app.Members) == 0 {
+		ctx.Error("Application must have at least one member", fasthttp.StatusBadRequest)
 		return
 	}
-	if app.OwnerPublicKey == "" {
-		ctx.Error("Owner public key is required", fasthttp.StatusBadRequest)
-		return
-	}
+
+	// Set server public key for the application
+	app.ServerPublicKey = &ae.serverPublicKey
+
 	// Register the application
 	_, err := ae.appService.RegisterApplication(authenticatedUser.PublicKey, &app)
 	if err != nil {
@@ -68,7 +71,7 @@ func (ae *ApplicationEndpoints) RegisterApplication(ctx *fasthttp.RequestCtx) {
 func (ae *ApplicationEndpoints) ListApplications(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -82,7 +85,7 @@ func (ae *ApplicationEndpoints) ListApplications(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Return applications
+	// Return applications (server_public_key now comes from database)
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(apps)
@@ -92,7 +95,7 @@ func (ae *ApplicationEndpoints) ListApplications(ctx *fasthttp.RequestCtx) {
 func (ae *ApplicationEndpoints) GetApplication(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -117,7 +120,7 @@ func (ae *ApplicationEndpoints) GetApplication(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Return application
+	// Return application (server_public_key now comes from database)
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(app)
@@ -127,7 +130,7 @@ func (ae *ApplicationEndpoints) GetApplication(ctx *fasthttp.RequestCtx) {
 func (ae *ApplicationEndpoints) GetApplicationState(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -162,7 +165,7 @@ func (ae *ApplicationEndpoints) GetApplicationState(ctx *fasthttp.RequestCtx) {
 func (ae *ApplicationEndpoints) DeleteApplication(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -196,6 +199,44 @@ func (ae *ApplicationEndpoints) DeleteApplication(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json")
 	response := map[string]string{
 		"message": "Application deleted successfully",
+	}
+	json.NewEncoder(ctx).Encode(response)
+}
+
+// LeaveApplication handles DELETE /applications/{id}/members/me
+func (ae *ApplicationEndpoints) LeaveApplication(ctx *fasthttp.RequestCtx) {
+	// Get authenticated user from context
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
+		log.Error().Msg("Failed to get authenticated user from context")
+		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
+		return
+	}
+
+	// Extract application ID from path
+	appID := ctx.UserValue("appID").(string)
+	if appID == "" {
+		ctx.Error("Application ID is required", fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Leave the application
+	err := ae.appService.LeaveApplication(appID, authenticatedUser)
+	if err != nil {
+		if err.Error() == "not a member of this application" {
+			ctx.Error("Not a member of this application", fasthttp.StatusForbidden)
+			return
+		}
+		log.Error().Err(err).Msg("Failed to leave application")
+		ctx.Error("Failed to leave application", fasthttp.StatusInternalServerError)
+		return
+	}
+
+	// Return success response
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetContentType("application/json")
+	response := map[string]string{
+		"message": "Left application successfully",
 	}
 	json.NewEncoder(ctx).Encode(response)
 }

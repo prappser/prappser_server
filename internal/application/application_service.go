@@ -7,6 +7,20 @@ import (
 	"github.com/prappser/prappser_server/internal/user"
 )
 
+// Event represents a domain event (avoiding import cycle with event package)
+type Event struct {
+	ID               string
+	Type             string
+	CreatorPublicKey string
+	Data             map[string]interface{}
+	CreatedAt        int64
+	ApplicationID    string
+	SequenceNumber   int64
+}
+
+// EventProducer interface removed - events are now client-produced via POST /events
+// Server only validates, sequences, and applies events
+
 type ApplicationService struct {
 	appRepo ApplicationRepository
 }
@@ -25,11 +39,19 @@ func (s *ApplicationService) RegisterApplication(ownerPublicKey string, app *App
 	if app.Name == "" {
 		return nil, fmt.Errorf("application name cannot be empty")
 	}
-	if app.UserPublicKey == "" {
-		return nil, fmt.Errorf("user public key cannot be empty")
+
+	// Validate that there is exactly one owner in members
+	ownerCount := 0
+	for _, member := range app.Members {
+		if member.Role == MemberRoleOwner {
+			ownerCount++
+		}
 	}
-	if app.OwnerPublicKey == "" {
-		return nil, fmt.Errorf("owner public key cannot be empty")
+	if ownerCount == 0 {
+		return nil, fmt.Errorf("application must have at least one owner member")
+	}
+	if ownerCount > 1 {
+		return nil, fmt.Errorf("application must have exactly one owner member")
 	}
 
 	// Set timestamps
@@ -88,12 +110,16 @@ func (s *ApplicationService) GetApplication(appID string, requestingUser *user.U
 	if err != nil {
 		return nil, err
 	}
-	
-	// Verify ownership
-	if app.OwnerPublicKey != requestingUser.PublicKey {
-		return nil, fmt.Errorf("unauthorized")
+
+	// Verify membership - user must be a member of the application
+	isMember, err := s.appRepo.IsMember(appID, requestingUser.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check membership: %w", err)
 	}
-	
+	if !isMember {
+		return nil, fmt.Errorf("unauthorized: not a member of this application")
+	}
+
 	return app, nil
 }
 
@@ -102,22 +128,21 @@ func (s *ApplicationService) GetApplicationState(appID string, requestingUser *u
 	if err != nil {
 		return nil, err
 	}
-	
-	// Verify ownership by fetching the full app (state doesn't include userID)
-	app, err := s.appRepo.GetApplicationByID(appID)
+
+	// Verify membership - user must be a member of the application
+	isMember, err := s.appRepo.IsMember(appID, requestingUser.PublicKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to check membership: %w", err)
 	}
-	
-	if app.OwnerPublicKey != requestingUser.PublicKey {
-		return nil, fmt.Errorf("unauthorized")
+	if !isMember {
+		return nil, fmt.Errorf("unauthorized: not a member of this application")
 	}
-	
+
 	return state, nil
 }
 
-func (s *ApplicationService) ListApplications(ownerPublicKey string) ([]*Application, error) {
-	return s.appRepo.GetApplicationsByOwnerPublicKey(ownerPublicKey)
+func (s *ApplicationService) ListApplications(memberPublicKey string) ([]*Application, error) {
+	return s.appRepo.GetApplicationsByMemberPublicKey(memberPublicKey)
 }
 
 func (s *ApplicationService) DeleteApplication(appID string, requestingUser *user.User) error {
@@ -126,13 +151,42 @@ func (s *ApplicationService) DeleteApplication(appID string, requestingUser *use
 	if err != nil {
 		return err
 	}
-	
+
 	// Verify ownership
-	if app.OwnerPublicKey != requestingUser.PublicKey {
+	ownerPublicKey, err := app.GetOwnerPublicKey()
+	if err != nil {
+		return fmt.Errorf("failed to get owner: %w", err)
+	}
+	if ownerPublicKey != requestingUser.PublicKey {
 		return fmt.Errorf("unauthorized")
 	}
-	
+
 	// Delete the application
-	return s.appRepo.DeleteApplication(appID)
+	// Note: Client will submit application_deleted event via POST /events
+	if err := s.appRepo.DeleteApplication(appID); err != nil {
+		// TODO: Consider compensating event if deletion fails
+		return fmt.Errorf("failed to delete application: %w", err)
+	}
+
+	return nil
+}
+
+// LeaveApplication validates that the user is a member of the application.
+// In the client-produced events architecture, this endpoint is deprecated.
+// Clients should submit member_removed or application_deleted events via POST /events.
+// This method is kept for backward compatibility but just performs validation.
+func (s *ApplicationService) LeaveApplication(appID string, requestingUser *user.User) error {
+	// Verify user is a member of the application
+	_, err := s.appRepo.GetMemberByPublicKey(appID, requestingUser.PublicKey)
+	if err != nil {
+		return fmt.Errorf("not a member of this application")
+	}
+
+	// Client-produced events architecture:
+	// Client should submit member_removed or application_deleted event via POST /events
+	// Server validates, sequences, and applies the event
+	// This endpoint returns success but does NOT produce events
+
+	return nil
 }
 

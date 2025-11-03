@@ -44,12 +44,23 @@ type InvitationOptions struct {
 type InviteInfo struct {
 	InviteID        string `json:"inviteId"`
 	ApplicationName string `json:"applicationName"`
-	HostName        string `json:"hostName"`
-	MemberCount     int    `json:"memberCount"`
+	CreatorUsername string `json:"creatorUsername"`
 	Role            string `json:"role"`
 	ExpiresAt       *int64 `json:"expiresAt,omitempty"`
 	IsExpired       bool   `json:"isExpired"`
 	IsValid         bool   `json:"isValid"`
+}
+
+// CheckInvitationResult contains status information about invitation usage
+type CheckInvitationResult struct {
+	Valid           bool   `json:"valid"`
+	AlreadyUsed     bool   `json:"alreadyUsed"`
+	IsMember        bool   `json:"isMember"`
+	IsExpired       bool   `json:"isExpired"`
+	MaxUsesReached  bool   `json:"maxUsesReached"`
+	ApplicationName string `json:"applicationName,omitempty"`
+	Role            string `json:"role,omitempty"`
+	Message         string `json:"message"`
 }
 
 // InviteTokenClaims represents JWT claims for invitation tokens

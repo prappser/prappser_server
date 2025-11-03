@@ -28,7 +28,7 @@ type CreateInviteRequest struct {
 func (ie *InvitationEndpoints) CreateInvite(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -92,7 +92,27 @@ func (ie *InvitationEndpoints) GetInviteInfo(ctx *fasthttp.RequestCtx) {
 	info, err := ie.invitationService.GetInviteInfo(token)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get invite info")
-		ctx.Error("Invalid or expired invite", fasthttp.StatusBadRequest)
+		// Invalid token format
+		ctx.Error("Invalid invite token", fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Check if invitation was revoked (not found in database)
+	if !info.IsValid && info.ApplicationName == "" {
+		log.Info().Str("inviteID", info.InviteID).Msg("Invitation not found (revoked)")
+		ctx.Error("This invitation has been revoked", fasthttp.StatusNotFound)
+		return
+	}
+
+	// Check if invitation expired or reached max uses
+	if !info.IsValid {
+		if info.IsExpired {
+			log.Info().Str("inviteID", info.InviteID).Msg("Invitation expired")
+			ctx.Error("This invitation has expired", fasthttp.StatusGone)
+		} else {
+			log.Info().Str("inviteID", info.InviteID).Msg("Invitation reached maximum uses")
+			ctx.Error("This invitation has reached maximum uses", fasthttp.StatusGone)
+		}
 		return
 	}
 
@@ -102,30 +122,91 @@ func (ie *InvitationEndpoints) GetInviteInfo(ctx *fasthttp.RequestCtx) {
 	json.NewEncoder(ctx).Encode(info)
 }
 
+// CheckInvitationRequest represents the request body for checking invitation usage
+type CheckInvitationRequest struct {
+	Token         string `json:"token"`
+	UserPublicKey string `json:"userPublicKey"`
+}
+
+// CheckInvitation handles POST /invites/check
+// This is a public endpoint (no auth required) for checking if a user can use an invitation
+func (ie *InvitationEndpoints) CheckInvitation(ctx *fasthttp.RequestCtx) {
+	// Parse request body
+	var req CheckInvitationRequest
+	if err := json.Unmarshal(ctx.PostBody(), &req); err != nil {
+		log.Error().Err(err).Msg("Failed to parse request body")
+		ctx.Error("Invalid request body", fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Token == "" {
+		ctx.Error("Token is required", fasthttp.StatusBadRequest)
+		return
+	}
+	if req.UserPublicKey == "" {
+		ctx.Error("User public key is required", fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Check invitation usage
+	result, err := ie.invitationService.CheckInvitationUsage(req.Token, req.UserPublicKey)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check invitation usage")
+		ctx.Error("Failed to check invitation", fasthttp.StatusInternalServerError)
+		return
+	}
+
+	// Return result
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx).Encode(result)
+}
+
 // JoinRequest represents the request body for joining via invitation
 type JoinRequest struct {
-	Token string `json:"token"`
+	PublicKey string `json:"publicKey"`
+	Username  string `json:"username"`
 }
 
 // JoinApplication handles POST /invites/{token}/join
+// This is a PUBLIC endpoint (no authentication required)
+// It will create the user if they don't exist
 func (ie *InvitationEndpoints) JoinApplication(ctx *fasthttp.RequestCtx) {
-	// Get authenticated user from context
-	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
-		log.Error().Msg("Failed to get authenticated user from context")
-		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
-		return
-	}
+	log.Debug().Msg("[JOIN] Join application request received")
 
 	// Extract token from path
 	token := ctx.UserValue("token").(string)
 	if token == "" {
+		log.Error().Msg("[JOIN] Token is missing")
 		ctx.Error("Token is required", fasthttp.StatusBadRequest)
 		return
 	}
 
-	// Join via invitation service (handles validation, transaction, event production)
-	result, err := ie.invitationService.Join(token, authenticatedUser.PublicKey, authenticatedUser.Username)
+	// Parse request body to get user info
+	var req JoinRequest
+	if err := json.Unmarshal(ctx.PostBody(), &req); err != nil {
+		log.Error().Err(err).Msg("[JOIN] Failed to parse request body")
+		ctx.Error("Invalid request body", fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.PublicKey == "" {
+		log.Error().Msg("[JOIN] Public key is missing")
+		ctx.Error("Public key is required", fasthttp.StatusBadRequest)
+		return
+	}
+	if req.Username == "" {
+		log.Error().Msg("[JOIN] Username is missing")
+		ctx.Error("Username is required", fasthttp.StatusBadRequest)
+		return
+	}
+
+	log.Debug().Str("username", req.Username).Str("token", token).Msg("[JOIN] Joining application")
+
+	// Join via invitation service (handles user creation, validation, transaction, event production)
+	result, err := ie.invitationService.Join(token, req.PublicKey, req.Username)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to join application")
 
@@ -156,7 +237,7 @@ func (ie *InvitationEndpoints) JoinApplication(ctx *fasthttp.RequestCtx) {
 func (ie *InvitationEndpoints) RevokeInvite(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
@@ -205,7 +286,7 @@ func (ie *InvitationEndpoints) RevokeInvite(ctx *fasthttp.RequestCtx) {
 func (ie *InvitationEndpoints) ListInvites(ctx *fasthttp.RequestCtx) {
 	// Get authenticated user from context
 	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
-	if !ok {
+	if !ok || authenticatedUser == nil {
 		log.Error().Msg("Failed to get authenticated user from context")
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return

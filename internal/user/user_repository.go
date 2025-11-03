@@ -55,3 +55,14 @@ func (r *sqlite3UserRepository) GetUserByUsername(username string) (*User, error
 	}
 	return &user, nil
 }
+
+func (r *sqlite3UserRepository) UpdateUserRole(publicKey string, role string) error {
+	_, err := r.db.Exec(
+		"UPDATE users SET role = ? WHERE public_key = ?",
+		role, publicKey,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update user role: %w", err)
+	}
+	return nil
+}

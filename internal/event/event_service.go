@@ -1,161 +1,122 @@
 package event
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prappser/prappser_server/internal/application"
+	"github.com/prappser/prappser_server/internal/user"
+	"github.com/rs/zerolog/log"
 )
 
 type EventService struct {
-	repo *EventRepository
+	repo    *EventRepository
+	appRepo application.ApplicationRepository
 }
 
-func NewEventService(repo *EventRepository) *EventService {
+func NewEventService(repo *EventRepository, appRepo application.ApplicationRepository) *EventService {
 	return &EventService{
-		repo: repo,
+		repo:    repo,
+		appRepo: appRepo,
 	}
 }
 
-// ProduceMemberAdded creates a member_added event
-func (s *EventService) ProduceMemberAdded(appID, creatorPublicKey, memberPublicKey, role, inviteID string) error {
-	data := MemberAddedData{
-		MemberPublicKey: memberPublicKey,
-		Role:            role,
-		InviteID:        inviteID,
+func (s *EventService) AcceptEvent(ctx context.Context, event *Event, submitter *user.User) (*Event, error) {
+	if err := ValidateEvent(event); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	dataMap, err := MarshalData(data)
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return nil, fmt.Errorf("%w: applicationId not found in event data", ErrValidation)
+	}
+
+	// Set ApplicationID field from data
+	event.ApplicationID = appID
+
+	app, err := s.appRepo.GetApplicationByID(appID)
 	if err != nil {
-		return fmt.Errorf("failed to marshal member_added data: %w", err)
+		return nil, fmt.Errorf("application not found: %w", err)
 	}
 
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeMemberAdded,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
-
-	return s.repo.Create(event)
-}
-
-// ProduceMemberRemoved creates a member_removed event
-func (s *EventService) ProduceMemberRemoved(appID, creatorPublicKey, memberPublicKey, reason string) error {
-	data := MemberRemovedData{
-		MemberPublicKey: memberPublicKey,
-		Reason:          reason,
+	if err := AuthorizeEvent(event, submitter, app); err != nil {
+		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	dataMap, err := MarshalData(data)
+	seq, err := s.repo.GetNextSequence(appID)
 	if err != nil {
-		return fmt.Errorf("failed to marshal member_removed data: %w", err)
+		return nil, fmt.Errorf("sequence generation failed: %w", err)
+	}
+	event.SequenceNumber = seq
+
+	event.CreatedAt = time.Now().Unix()
+
+	if err := s.repo.Create(event); err != nil {
+		return nil, fmt.Errorf("persistence failed: %w", err)
 	}
 
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeMemberRemoved,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
+	// Execute event to update database state
+	if err := s.executeEvent(ctx, event); err != nil {
+		// Log error but don't fail event acceptance
+		// Event is already persisted and sequenced
+		log.Printf("[WARN] Failed to execute event %s (type: %s): %v", event.ID, event.Type, err)
+	}
 
-	return s.repo.Create(event)
+	return event, nil
 }
 
-// ProduceMemberRoleChanged creates a member_role_changed event
-func (s *EventService) ProduceMemberRoleChanged(appID, creatorPublicKey, memberPublicKey, oldRole, newRole string) error {
-	data := MemberRoleChangedData{
-		MemberPublicKey: memberPublicKey,
-		OldRole:         oldRole,
-		NewRole:         newRole,
+// ProduceEvent creates an event without authorization checks.
+// Used for server-generated events where the action was already validated by the endpoint.
+// The event is sequenced, persisted, and executed but authorization is skipped.
+func (s *EventService) ProduceEvent(ctx context.Context, event *Event) (*Event, error) {
+	if err := ValidateEvent(event); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	dataMap, err := MarshalData(data)
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return nil, fmt.Errorf("%w: applicationId not found in event data", ErrValidation)
+	}
+
+	// Set ApplicationID field from data
+	event.ApplicationID = appID
+
+	seq, err := s.repo.GetNextSequence(appID)
 	if err != nil {
-		return fmt.Errorf("failed to marshal member_role_changed data: %w", err)
+		return nil, fmt.Errorf("sequence generation failed: %w", err)
+	}
+	event.SequenceNumber = seq
+
+	event.CreatedAt = time.Now().Unix()
+
+	if err := s.repo.Create(event); err != nil {
+		return nil, fmt.Errorf("persistence failed: %w", err)
 	}
 
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeMemberRoleChanged,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
+	// Execute event to update database state
+	if err := s.executeEvent(ctx, event); err != nil {
+		// Log error but don't fail event acceptance
+		// Event is already persisted and sequenced
+		log.Error().
+			Str("eventId", event.ID).
+			Str("eventType", string(event.Type)).
+			Str("applicationId", event.ApplicationID).
+			Err(err).
+			Msg("[EVENT_EXECUTION] Failed to execute server-produced event - event persisted but database state not updated")
+	} else {
+		log.Debug().
+			Str("eventId", event.ID).
+			Str("eventType", string(event.Type)).
+			Str("applicationId", event.ApplicationID).
+			Msg("[EVENT_EXECUTION] Successfully executed server-produced event")
+	}
 
-	return s.repo.Create(event)
+	return event, nil
 }
 
-// ProduceApplicationDataChanged creates an application_data_changed event
-func (s *EventService) ProduceApplicationDataChanged(appID, creatorPublicKey string, version int, changedFields []string) error {
-	data := ApplicationDataChangedData{
-		Version:       version,
-		ChangedFields: changedFields,
-	}
-
-	dataMap, err := MarshalData(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal application_data_changed data: %w", err)
-	}
-
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeApplicationDataChanged,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
-
-	return s.repo.Create(event)
-}
-
-// ProduceApplicationDeleted creates an application_deleted event
-func (s *EventService) ProduceApplicationDeleted(appID, creatorPublicKey string) error {
-	data := ApplicationDeletedData{
-		DeletedAt: time.Now().Unix(),
-	}
-
-	dataMap, err := MarshalData(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal application_deleted data: %w", err)
-	}
-
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeApplicationDeleted,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
-
-	return s.repo.Create(event)
-}
-
-// ProduceInviteRevoked creates an invite_revoked event
-func (s *EventService) ProduceInviteRevoked(appID, creatorPublicKey, inviteID string) error {
-	data := InviteRevokedData{
-		InviteID: inviteID,
-	}
-
-	dataMap, err := MarshalData(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal invite_revoked data: %w", err)
-	}
-
-	event := NewEvent(
-		uuid.New().String(), // TODO: Use UUID v7
-		EventTypeInviteRevoked,
-		appID,
-		creatorPublicKey,
-		dataMap,
-	)
-
-	return s.repo.Create(event)
-}
-
-// GetEventsSince retrieves events for a user since a given event ID
+// GetEventsSince retrieves events since a given event ID for the authenticated user's applications
 func (s *EventService) GetEventsSince(userPublicKey string, sinceEventID string, limit int) (*EventsResponse, error) {
 	events, hasMore, err := s.repo.GetSince(userPublicKey, sinceEventID, limit)
 	if err != nil {
@@ -173,6 +134,147 @@ func (s *EventService) GetEventsSince(userPublicKey string, sinceEventID string,
 		Events:  events,
 		HasMore: hasMore,
 	}, nil
+}
+
+// executeEvent executes an event by updating the database state
+func (s *EventService) executeEvent(ctx context.Context, event *Event) error {
+	switch event.Type {
+	case "member_added":
+		return s.executeMemberAdded(ctx, event)
+	case "member_removed":
+		return s.executeMemberRemoved(ctx, event)
+	case "application_deleted":
+		return s.executeApplicationDeleted(ctx, event)
+	case "member_role_changed":
+		return s.executeMemberRoleChanged(ctx, event)
+	default:
+		// Unknown event types are not executed (forward compatibility)
+		return nil
+	}
+}
+
+// executeMemberAdded creates a member record in the database
+func (s *EventService) executeMemberAdded(ctx context.Context, event *Event) error {
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return fmt.Errorf("missing applicationId in member_added event")
+	}
+
+	memberPublicKey, ok := event.Data["memberPublicKey"].(string)
+	if !ok || memberPublicKey == "" {
+		return fmt.Errorf("missing memberPublicKey in member_added event")
+	}
+
+	memberName, ok := event.Data["memberName"].(string)
+	if !ok || memberName == "" {
+		return fmt.Errorf("missing memberName in member_added event")
+	}
+
+	roleStr, ok := event.Data["role"].(string)
+	if !ok || roleStr == "" {
+		roleStr = "member" // Default role
+	}
+
+	member := &application.Member{
+		ID:            uuid.New().String(),
+		ApplicationID: appID,
+		Name:          memberName,
+		Role:          application.MemberRole(roleStr),
+		PublicKey:     memberPublicKey,
+	}
+
+	return s.appRepo.CreateMember(member)
+}
+
+// executeMemberRemoved deletes a member record from the database
+func (s *EventService) executeMemberRemoved(ctx context.Context, event *Event) error {
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return fmt.Errorf("missing applicationId in member_removed event")
+	}
+
+	memberPublicKey, ok := event.Data["memberPublicKey"].(string)
+	if !ok || memberPublicKey == "" {
+		return fmt.Errorf("missing memberPublicKey in member_removed event")
+	}
+
+	log.Debug().
+		Str("applicationId", appID).
+		Str("memberPublicKey", memberPublicKey[:20]+"...").
+		Msg("[MEMBER_REMOVED] Executing member_removed event - looking up member")
+
+	// Get member by publicKey to get the member ID
+	member, err := s.appRepo.GetMemberByPublicKey(appID, memberPublicKey)
+	if err != nil {
+		log.Error().
+			Str("applicationId", appID).
+			Str("memberPublicKey", memberPublicKey[:20]+"...").
+			Err(err).
+			Msg("[MEMBER_REMOVED] Failed to find member for deletion")
+		return fmt.Errorf("member not found: %w", err)
+	}
+
+	log.Debug().
+		Str("applicationId", appID).
+		Str("memberId", member.ID).
+		Str("memberPublicKey", memberPublicKey[:20]+"...").
+		Msg("[MEMBER_REMOVED] Found member, deleting from database")
+
+	// Delete member by ID
+	if err := s.appRepo.DeleteMember(member.ID); err != nil {
+		log.Error().
+			Str("applicationId", appID).
+			Str("memberId", member.ID).
+			Err(err).
+			Msg("[MEMBER_REMOVED] Failed to delete member from database")
+		return err
+	}
+
+	log.Info().
+		Str("applicationId", appID).
+		Str("memberId", member.ID).
+		Str("memberPublicKey", memberPublicKey[:20]+"...").
+		Msg("[MEMBER_REMOVED] Successfully deleted member from database")
+
+	return nil
+}
+
+// executeApplicationDeleted deletes an application (cascades to members, groups, components)
+func (s *EventService) executeApplicationDeleted(ctx context.Context, event *Event) error {
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return fmt.Errorf("missing applicationId in application_deleted event")
+	}
+
+	return s.appRepo.DeleteApplication(appID)
+}
+
+// executeMemberRoleChanged updates a member's role in the database
+func (s *EventService) executeMemberRoleChanged(ctx context.Context, event *Event) error {
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return fmt.Errorf("missing applicationId in member_role_changed event")
+	}
+
+	memberPublicKey, ok := event.Data["memberPublicKey"].(string)
+	if !ok || memberPublicKey == "" {
+		return fmt.Errorf("missing memberPublicKey in member_role_changed event")
+	}
+
+	newRole, ok := event.Data["newRole"].(string)
+	if !ok || newRole == "" {
+		return fmt.Errorf("missing newRole in member_role_changed event")
+	}
+
+	// Get member by publicKey
+	member, err := s.appRepo.GetMemberByPublicKey(appID, memberPublicKey)
+	if err != nil {
+		return fmt.Errorf("member not found: %w", err)
+	}
+
+	// Update role
+	member.Role = application.MemberRole(newRole)
+	return s.appRepo.UpdateMember(member)
 }
 
 // CleanupOldEvents deletes events older than the retention period (7 days)

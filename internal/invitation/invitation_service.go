@@ -1,6 +1,7 @@
 package invitation
 
 import (
+	"context"
 	"crypto/rsa"
 	"database/sql"
 	"fmt"
@@ -9,36 +10,41 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/prappser/prappser_server/internal/application"
+	"github.com/prappser/prappser_server/internal/event"
+	"github.com/prappser/prappser_server/internal/user"
+	"github.com/rs/zerolog/log"
 )
 
 const (
 	MaxExpirationHours = 48
 )
 
-// EventProducer interface for producing events (to avoid circular dependency)
-type EventProducer interface {
-	ProduceMemberAdded(appID, creatorPublicKey, memberPublicKey, role, inviteID string) error
+type EventService interface {
+	AcceptEvent(ctx context.Context, e *event.Event, submitter *user.User) (*event.Event, error)
+	ProduceEvent(ctx context.Context, e *event.Event) (*event.Event, error)
 }
 
 type InvitationService struct {
-	repo          InvitationRepository
-	privateKey    *rsa.PrivateKey
-	publicKey     *rsa.PublicKey
-	appRepo       application.ApplicationRepository
-	eventProducer EventProducer
-	db            *sql.DB
-	externalURL   string
+	repo           InvitationRepository
+	privateKey     *rsa.PrivateKey
+	publicKey      *rsa.PublicKey
+	appRepo        application.ApplicationRepository
+	db             *sql.DB
+	externalURL    string
+	userRepository user.UserRepository
+	eventService   EventService
 }
 
-func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, eventProducer EventProducer, db *sql.DB, externalURL string) *InvitationService {
+func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, db *sql.DB, externalURL string, userRepository user.UserRepository, eventService EventService) *InvitationService {
 	return &InvitationService{
-		repo:          repo,
-		privateKey:    privateKey,
-		publicKey:     publicKey,
-		appRepo:       appRepo,
-		eventProducer: eventProducer,
-		db:            db,
-		externalURL:   externalURL,
+		repo:           repo,
+		privateKey:     privateKey,
+		publicKey:      publicKey,
+		appRepo:        appRepo,
+		db:             db,
+		externalURL:    externalURL,
+		userRepository: userRepository,
+		eventService:   eventService,
 	}
 }
 
@@ -123,34 +129,24 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL string, expiresAt *int64) (string, error) {
 	now := time.Now()
 
-	claims := InviteTokenClaims{
-		InviteID:      inviteID,
-		ApplicationID: appID,
-		Role:          role,
-		ServerURL:     serverURL,
-		IssuedAt:      now.Unix(),
-		ExpiresAt:     expiresAt,
-	}
-
-	// Build registered claims for JWT
-	registeredClaims := jwt.RegisteredClaims{
-		IssuedAt:  jwt.NewNumericDate(now),
-		NotBefore: jwt.NewNumericDate(now),
-	}
-	if expiresAt != nil {
-		registeredClaims.ExpiresAt = jwt.NewNumericDate(time.Unix(*expiresAt, 0))
-	}
+	issuedAt := now.Unix()
+	notBefore := now.Unix()
 
 	// Create token with custom claims
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"inviteId":  claims.InviteID,
-		"appId":     claims.ApplicationID,
-		"role":      claims.Role,
-		"serverUrl": claims.ServerURL,
-		"iat":       claims.IssuedAt,
-		"exp":       claims.ExpiresAt,
-		"nbf":       registeredClaims.NotBefore.Unix(),
-	})
+	mapClaims := jwt.MapClaims{
+		"inviteId":  inviteID,
+		"appId":     appID,
+		"role":      role,
+		"serverUrl": serverURL,
+		"iat":       issuedAt,
+		"nbf":       notBefore,
+	}
+	// Only include exp claim if it's not nil (JWT requires exp to be numeric if present)
+	if expiresAt != nil {
+		mapClaims["exp"] = *expiresAt
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, mapClaims)
 
 	// Sign token
 	tokenString, err := token.SignedString(s.privateKey)
@@ -238,8 +234,7 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 	info := &InviteInfo{
 		InviteID:        invite.ID,
 		ApplicationName: "Application", // TODO: Fetch from ApplicationRepository
-		HostName:        "Host",        // TODO: Fetch from UserRepository
-		MemberCount:     1,             // TODO: Fetch from MemberRepository
+		CreatorUsername: "Host",        // TODO: Fetch from UserRepository
 		Role:            invite.Role,
 		ExpiresAt:       claims.ExpiresAt,
 		IsExpired:       isExpired,
@@ -247,6 +242,87 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 	}
 
 	return info, nil
+}
+
+// CheckInvitationUsage checks if an invitation can be used by a specific user
+func (s *InvitationService) CheckInvitationUsage(tokenString, userPublicKey string) (*CheckInvitationResult, error) {
+	result := &CheckInvitationResult{
+		Valid:          false,
+		AlreadyUsed:    false,
+		IsMember:       false,
+		IsExpired:      false,
+		MaxUsesReached: false,
+	}
+
+	// Validate token
+	claims, err := s.ValidateToken(tokenString)
+	if err != nil {
+		result.Message = "Invalid or malformed invitation link"
+		return result, nil
+	}
+
+	// Check expiration
+	if claims.ExpiresAt != nil && time.Now().Unix() > *claims.ExpiresAt {
+		result.IsExpired = true
+		result.Message = "This invitation has expired"
+		return result, nil
+	}
+
+	// Get invitation
+	invite, err := s.repo.GetByID(claims.InviteID)
+	if err != nil {
+		result.Message = "Invitation not found or has been revoked"
+		return result, nil
+	}
+
+	// Get application info
+	app, err := s.appRepo.GetApplicationByID(invite.ApplicationID)
+	if err == nil && app != nil {
+		result.ApplicationName = app.Name
+	}
+	result.Role = invite.Role
+
+	// Check max uses
+	if invite.MaxUses != nil && invite.UsedCount >= *invite.MaxUses {
+		result.MaxUsesReached = true
+		result.Message = "This invitation has reached its maximum number of uses"
+		return result, nil
+	}
+
+	// Check if user has already used this invitation
+	alreadyUsed, err := s.repo.HasBeenUsedBy(invite.ID, userPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check invitation usage: %w", err)
+	}
+
+	if alreadyUsed {
+		// Check if still a member
+		isMember, _ := s.appRepo.IsMember(invite.ApplicationID, userPublicKey)
+		result.IsMember = isMember
+
+		if isMember {
+			// User is still a member - cannot rejoin
+			result.AlreadyUsed = true
+			result.Message = "You have already joined this application"
+			return result, nil
+		}
+
+		// User previously joined but is no longer a member - allow rejoin
+		// Fall through to normal validation (treat as new join)
+	}
+
+	// Check if user is already a member (without using invitation)
+	isMember, err := s.appRepo.IsMember(invite.ApplicationID, userPublicKey)
+	if err == nil && isMember {
+		result.IsMember = true
+		result.Message = "You are already a member of this application"
+		return result, nil
+	}
+
+	// Invitation is valid and can be used
+	result.Valid = true
+	result.Message = "Invitation is valid and ready to use"
+	return result, nil
 }
 
 // RevokeInvitation deletes an invitation (hard delete)
@@ -261,9 +337,9 @@ func (s *InvitationService) GetInvitesForApp(appID string) ([]*Invitation, error
 
 // JoinResult contains the result of a successful join operation
 type JoinResult struct {
-	Application *application.Application `json:"application"`
-	Member      *application.Member      `json:"member"`
-	IsNewMember bool                     `json:"isNewMember"`
+	ApplicationID string `json:"applicationId"`
+	MemberID      string `json:"memberId"`
+	IsNewMember   bool   `json:"isNewMember"`
 }
 
 // Join handles the complete join flow with transaction
@@ -290,6 +366,35 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 		return nil, fmt.Errorf("invitation has reached maximum uses")
 	}
 
+	// Create user if doesn't exist (for member authentication)
+	log.Debug().Str("publicKey", userPublicKey[:20]+"...").Str("username", userName).Msg("[JOIN_SERVICE] Checking if user exists")
+	existingUser, err := s.userRepository.GetUserByPublicKey(userPublicKey)
+	if err != nil || existingUser == nil {
+		log.Debug().Str("username", userName).Msg("[JOIN_SERVICE] User not found, creating member user")
+
+		// Validate public key is not empty
+		if userPublicKey == "" {
+			return nil, fmt.Errorf("public key cannot be empty")
+		}
+
+		// Create user with member role
+		newUser := &user.User{
+			PublicKey: userPublicKey,
+			Username:  userName,
+			Role:      "member",
+			CreatedAt: time.Now().Unix(),
+		}
+
+		if err := s.userRepository.CreateUser(newUser); err != nil {
+			log.Error().Err(err).Str("username", userName).Msg("[JOIN_SERVICE] Failed to create user")
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+
+		log.Debug().Str("username", userName).Msg("[JOIN_SERVICE] User created successfully")
+	} else {
+		log.Debug().Str("username", userName).Msg("[JOIN_SERVICE] User already exists")
+	}
+
 	// Check if user is already a member (idempotent)
 	isMember, err := s.appRepo.IsMember(invite.ApplicationID, userPublicKey)
 	if err != nil {
@@ -297,11 +402,11 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 	}
 
 	if isMember {
-		// User is already a member - return success with existing data
-		app, err := s.appRepo.GetApplicationByID(invite.ApplicationID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get application: %w", err)
-		}
+		// User is already a member - return success with existing data (idempotent)
+		log.Debug().
+			Str("applicationId", invite.ApplicationID).
+			Str("userPublicKey", userPublicKey[:20]+"...").
+			Msg("[JOIN_SERVICE] User is already a member, returning success (idempotent)")
 
 		member, err := s.appRepo.GetMemberByPublicKey(invite.ApplicationID, userPublicKey)
 		if err != nil {
@@ -309,32 +414,48 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 		}
 
 		return &JoinResult{
-			Application: app,
-			Member:      member,
-			IsNewMember: false,
+			ApplicationID: invite.ApplicationID,
+			MemberID:      member.ID,
+			IsNewMember:   false,
 		}, nil
 	}
 
-	// Begin transaction
+	// Create member_added event and submit it for execution
+	// This creates the member record so the user can immediately access the application
+	evt := &event.Event{
+		ID:               uuid.New().String(),
+		Type:             "member_added",
+		CreatorPublicKey: userPublicKey,
+		Data: map[string]interface{}{
+			"applicationId":   invite.ApplicationID,
+			"memberPublicKey": userPublicKey,
+			"memberName":      userName,
+			"role":            invite.Role,
+			"inviteId":        invite.ID,
+			"version":         1,
+		},
+		CreatedAt:     time.Now().Unix(),
+		ApplicationID: invite.ApplicationID,
+	}
+
+	// Produce event (validates, sequences, persists, and executes - no authorization needed)
+	// Authorization was already done by validating the invitation token
+	_, err = s.eventService.ProduceEvent(context.Background(), evt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to produce member_added event: %w", err)
+	}
+
+	log.Debug().
+		Str("applicationId", invite.ApplicationID).
+		Str("userPublicKey", userPublicKey[:20]+"...").
+		Msg("[JOIN_SERVICE] member_added event produced and executed")
+
+	// Begin transaction for invitation usage tracking
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	// Create member record
-	member := &application.Member{
-		ID:            uuid.New().String(),
-		ApplicationID: invite.ApplicationID,
-		Name:          userName,
-		Role:          application.MemberRole(invite.Role),
-		PublicKey:     userPublicKey,
-		AvatarBytes:   nil,
-	}
-
-	if err := s.appRepo.CreateMember(member); err != nil {
-		return nil, fmt.Errorf("failed to create member: %w", err)
-	}
 
 	// Increment invitation used count
 	if err := s.repo.IncrementUseCount(invite.ID); err != nil {
@@ -347,35 +468,19 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 		return nil, fmt.Errorf("failed to record invitation use: %w", err)
 	}
 
-	// Produce member_added event
-	if s.eventProducer != nil {
-		if err := s.eventProducer.ProduceMemberAdded(
-			invite.ApplicationID,
-			userPublicKey,      // The joiner is the creator of this event
-			userPublicKey,      // The member being added
-			invite.Role,
-			invite.ID,
-		); err != nil {
-			// Log error but don't fail the transaction
-			// Event production is not critical for join success
-			fmt.Printf("WARNING: Failed to produce member_added event: %v\n", err)
-		}
-	}
-
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Get full application details
-	app, err := s.appRepo.GetApplicationByID(invite.ApplicationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get application after join: %w", err)
-	}
+	log.Debug().
+		Str("applicationId", invite.ApplicationID).
+		Str("userPublicKey", userPublicKey[:20]+"...").
+		Msg("[JOIN_SERVICE] Join successful - member created via event")
 
 	return &JoinResult{
-		Application: app,
-		Member:      member,
-		IsNewMember: true,
+		ApplicationID: invite.ApplicationID,
+		MemberID:      "", // Member ID generated by event execution
+		IsNewMember:   true,
 	}, nil
 }

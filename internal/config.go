@@ -3,15 +3,17 @@ package internal
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/prappser/prappser_server/internal/user"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Users       user.Config `mapstructure:"users"`
-	Port        string      `mapstructure:"port"`
-	ExternalURL string      `mapstructure:"external_url"`
+	Users          user.Config `mapstructure:"users"`
+	Port           string      `mapstructure:"port"`
+	ExternalURL    string      `mapstructure:"external_url"`
+	AllowedOrigins []string    `mapstructure:"allowed_origins"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -45,6 +47,21 @@ func LoadConfig() (*Config, error) {
 	// If external URL is not set, construct from localhost and port
 	if config.ExternalURL == "" {
 		config.ExternalURL = fmt.Sprintf("http://localhost:%s", config.Port)
+	}
+
+	// Allow ALLOWED_ORIGINS environment variable to override config
+	// Format: comma-separated list, e.g., "https://prappser.app,http://localhost:8080"
+	if originsEnv := os.Getenv("ALLOWED_ORIGINS"); originsEnv != "" {
+		config.AllowedOrigins = strings.Split(originsEnv, ",")
+		// Trim whitespace from each origin
+		for i := range config.AllowedOrigins {
+			config.AllowedOrigins[i] = strings.TrimSpace(config.AllowedOrigins[i])
+		}
+	}
+
+	// Default to wildcard if no origins are configured
+	if len(config.AllowedOrigins) == 0 {
+		config.AllowedOrigins = []string{"*"}
 	}
 
 	return &config, nil

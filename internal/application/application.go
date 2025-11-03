@@ -1,17 +1,19 @@
 package application
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type Application struct {
 	ID              string           `json:"id"`
-	OwnerPublicKey  string           `json:"ownerPublicKey"`
-	UserPublicKey   string           `json:"userPublicKey"`
 	Name            string           `json:"name"`
 	IconName        *string          `json:"iconName,omitempty"`
+	ServerPublicKey *string          `json:"serverPublicKey,omitempty"`
 	CreatedAt       int64            `json:"createdAt"`
 	UpdatedAt       int64            `json:"updatedAt"`
-	ComponentGroups []ComponentGroup `json:"componentGroups,omitempty"`
-	Members         []Member         `json:"members,omitempty"`
+	ComponentGroups []ComponentGroup `json:"componentGroups"`
+	Members         []Member         `json:"members"`
 }
 
 type ComponentGroup struct {
@@ -19,7 +21,7 @@ type ComponentGroup struct {
 	ApplicationID string      `json:"applicationId"`
 	Name          string      `json:"name"`
 	Index         int         `json:"index"`
-	Components    []Component `json:"components,omitempty"`
+	Components    []Component `json:"components"`
 }
 
 type Component struct {
@@ -53,9 +55,26 @@ type Member struct {
 	Name          string     `json:"name"`
 	Role          MemberRole `json:"role"`
 	PublicKey     string     `json:"publicKey"`
-	AvatarBytes   []byte     `json:"avatarBytes"`
+	AvatarBase64  string     `json:"avatarBase64"`
 }
 
 func (a *Application) UpdateTimestamp() {
 	a.UpdatedAt = time.Now().Unix()
+}
+
+func (a *Application) GetOwner() (*Member, error) {
+	for i := range a.Members {
+		if a.Members[i].Role == MemberRoleOwner {
+			return &a.Members[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no owner found in members")
+}
+
+func (a *Application) GetOwnerPublicKey() (string, error) {
+	owner, err := a.GetOwner()
+	if err != nil {
+		return "", err
+	}
+	return owner.PublicKey, nil
 }

@@ -13,6 +13,7 @@ type InvitationRepository interface {
 	IncrementUseCount(id string) error
 	RecordUse(inviteID, userPublicKey string, useID string) error
 	GetByApplicationID(appID string) ([]*Invitation, error)
+	HasBeenUsedBy(inviteID, userPublicKey string) (bool, error)
 }
 
 // SQLiteInvitationRepository implements InvitationRepository using SQLite
@@ -173,4 +174,21 @@ func (r *SQLiteInvitationRepository) GetByApplicationID(appID string) ([]*Invita
 	}
 
 	return invitations, nil
+}
+
+// HasBeenUsedBy checks if an invitation has been used by a specific user
+func (r *SQLiteInvitationRepository) HasBeenUsedBy(inviteID, userPublicKey string) (bool, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM invitation_uses
+		WHERE invitation_id = ? AND user_public_key = ?
+	`
+
+	var count int
+	err := r.db.QueryRow(query, inviteID, userPublicKey).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }

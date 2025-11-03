@@ -13,19 +13,13 @@ CREATE INDEX idx_users_role ON users(role);
 -- Create applications table
 CREATE TABLE applications (
     id TEXT PRIMARY KEY,
-    owner_public_key TEXT NOT NULL,
-    user_public_key TEXT NOT NULL,
     name TEXT NOT NULL,
     icon_name TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (owner_public_key) REFERENCES users(public_key) ON DELETE CASCADE,
-    FOREIGN KEY (user_public_key) REFERENCES users(public_key) ON DELETE CASCADE
+    updated_at INTEGER NOT NULL
 );
 
 -- Create indexes for applications
-CREATE INDEX idx_applications_owner_public_key ON applications(owner_public_key);
-CREATE INDEX idx_applications_user_public_key ON applications(user_public_key);
 CREATE INDEX idx_applications_name ON applications(name);
 
 -- Create component_groups table
@@ -73,3 +67,4 @@ CREATE TABLE members (
 CREATE INDEX idx_members_application_id ON members(application_id);
 CREATE INDEX idx_members_public_key ON members(public_key);
 CREATE INDEX idx_members_role ON members(role);
+CREATE INDEX idx_members_app_role_key ON members(application_id, role, public_key);
