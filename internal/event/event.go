@@ -8,12 +8,14 @@ import (
 type EventType string
 
 const (
-	EventTypeMemberAdded            EventType = "member_added"
-	EventTypeMemberRemoved          EventType = "member_removed"
-	EventTypeMemberRoleChanged      EventType = "member_role_changed"
-	EventTypeApplicationDataChanged EventType = "application_data_changed"
-	EventTypeApplicationDeleted     EventType = "application_deleted"
-	EventTypeInviteRevoked          EventType = "invite_revoked"
+	EventTypeMemberAdded                    EventType = "member_added"
+	EventTypeMemberRemoved                  EventType = "member_removed"
+	EventTypeMemberRoleChanged              EventType = "member_role_changed"
+	EventTypeApplicationDataChanged         EventType = "application_data_changed"
+	EventTypeApplicationDeleted             EventType = "application_deleted"
+	EventTypeInviteRevoked                  EventType = "invite_revoked"
+	EventTypeComponentDataChanged           EventType = "component_data_changed"
+	EventTypeApplicationAfterEditModeChanged EventType = "application_after_edit_mode_changed"
 )
 
 // Event represents a system event for application lifecycle changes
@@ -74,6 +76,38 @@ type InviteRevokedData struct {
 	Version       int    `json:"version"`
 	ApplicationID string `json:"applicationId"`
 	InviteID      string `json:"inviteId"`
+}
+
+// FieldChange represents a change to a single field with old and new values
+type FieldChange struct {
+	OldValue interface{} `json:"oldValue"`
+	NewValue interface{} `json:"newValue"`
+}
+
+// ComponentDataChangedData represents the data for a component_data_changed event
+type ComponentDataChangedData struct {
+	Version          int                    `json:"version"`
+	ApplicationID    string                 `json:"applicationId"`
+	ComponentID      string                 `json:"componentId"`
+	ComponentGroupID string                 `json:"componentGroupId"`
+	ChangedFields    map[string]FieldChange `json:"changedFields"`
+}
+
+// StructureChange represents a single change in the application structure
+type StructureChange struct {
+	ChangeType    string                 `json:"changeType"`              // component_added, component_removed, etc.
+	EntityType    string                 `json:"entityType"`              // component or component_group
+	EntityID      string                 `json:"entityId"`
+	Data          map[string]interface{} `json:"data,omitempty"`          // Full entity data for adds
+	Index         *int                   `json:"index,omitempty"`         // For reorder operations
+	ChangedFields map[string]FieldChange `json:"changedFields,omitempty"` // For component_data_changed
+}
+
+// ApplicationAfterEditModeChangedData represents the data for an application_after_edit_mode_changed event
+type ApplicationAfterEditModeChangedData struct {
+	Version       int               `json:"version"`
+	ApplicationID string            `json:"applicationId"`
+	Changes       []StructureChange `json:"changes"`
 }
 
 // EventsResponse represents the response for GET /events endpoint

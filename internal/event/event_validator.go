@@ -36,6 +36,10 @@ func ValidateEvent(event *Event) error {
 		return validateApplicationDeletedData(event.Data)
 	case EventTypeInviteRevoked:
 		return validateInviteRevokedData(event.Data)
+	case EventTypeComponentDataChanged:
+		return validateComponentDataChangedData(event.Data)
+	case EventTypeApplicationAfterEditModeChanged:
+		return validateApplicationAfterEditModeChangedData(event.Data)
 	default:
 		return fmt.Errorf("%w: unknown event type: %s", ErrValidation, event.Type)
 	}
@@ -104,5 +108,15 @@ func validateInviteRevokedData(data map[string]interface{}) error {
 	if _, ok := data["inviteId"].(string); !ok || data["inviteId"] == "" {
 		return fmt.Errorf("%w: inviteId is required", ErrValidation)
 	}
+	return nil
+}
+
+func validateComponentDataChangedData(data map[string]interface{}) error {
+	// Client-side validation only - server trusts client data
+	return nil
+}
+
+func validateApplicationAfterEditModeChangedData(data map[string]interface{}) error {
+	// Client-side validation only - server trusts client data
 	return nil
 }

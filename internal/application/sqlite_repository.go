@@ -215,42 +215,202 @@ func (r *SQLiteRepository) GetComponentsByGroupID(groupID string) ([]*Component,
 }
 
 func (r *SQLiteRepository) GetComponentsByApplicationID(appID string) ([]*Component, error) {
-	query := `SELECT id, component_group_id, application_id, name, data, index_order 
+	query := `SELECT id, component_group_id, application_id, name, data, index_order
 			  FROM components WHERE application_id = ? ORDER BY index_order`
-	
+
 	rows, err := r.db.Query(query, appID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var components []*Component
 	for rows.Next() {
 		comp := &Component{}
 		var dataJSON sql.NullString
 		err := rows.Scan(
-			&comp.ID, 
-			&comp.ComponentGroupID, 
-			&comp.ApplicationID, 
-			&comp.Name, 
-			&dataJSON, 
+			&comp.ID,
+			&comp.ComponentGroupID,
+			&comp.ApplicationID,
+			&comp.Name,
+			&dataJSON,
 			&comp.Index,
 		)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Parse JSON data if present
 		if dataJSON.Valid && dataJSON.String != "" {
 			if err := json.Unmarshal([]byte(dataJSON.String), &comp.Data); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal component data: %w", err)
 			}
 		}
-		
+
 		components = append(components, comp)
 	}
-	
+
 	return components, rows.Err()
+}
+
+func (r *SQLiteRepository) GetComponentByID(componentID string) (*Component, error) {
+	query := `SELECT id, component_group_id, application_id, name, data, index_order
+			  FROM components WHERE id = ?`
+
+	comp := &Component{}
+	var dataJSON sql.NullString
+	err := r.db.QueryRow(query, componentID).Scan(
+		&comp.ID,
+		&comp.ComponentGroupID,
+		&comp.ApplicationID,
+		&comp.Name,
+		&dataJSON,
+		&comp.Index,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("component not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse JSON data if present
+	if dataJSON.Valid && dataJSON.String != "" {
+		if err := json.Unmarshal([]byte(dataJSON.String), &comp.Data); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal component data: %w", err)
+		}
+	}
+
+	return comp, nil
+}
+
+func (r *SQLiteRepository) UpdateComponentData(componentID string, data map[string]interface{}) error {
+	var dataJSON string
+	if data != nil {
+		dataBytes, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("failed to marshal component data: %w", err)
+		}
+		dataJSON = string(dataBytes)
+	}
+
+	query := `UPDATE components SET data = ? WHERE id = ?`
+	result, err := r.db.Exec(query, dataJSON, componentID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("component not found")
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) UpdateComponentIndex(componentID string, index int) error {
+	query := `UPDATE components SET index_order = ? WHERE id = ?`
+	result, err := r.db.Exec(query, index, componentID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("component not found")
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) DeleteComponent(componentID string) error {
+	query := `DELETE FROM components WHERE id = ?`
+	result, err := r.db.Exec(query, componentID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("component not found")
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) GetComponentGroupByID(groupID string) (*ComponentGroup, error) {
+	query := `SELECT id, application_id, name, index_order
+			  FROM component_groups WHERE id = ?`
+
+	group := &ComponentGroup{}
+	err := r.db.QueryRow(query, groupID).Scan(
+		&group.ID,
+		&group.ApplicationID,
+		&group.Name,
+		&group.Index,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("component group not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return group, nil
+}
+
+func (r *SQLiteRepository) UpdateComponentGroupIndex(groupID string, index int) error {
+	query := `UPDATE component_groups SET index_order = ? WHERE id = ?`
+	result, err := r.db.Exec(query, index, groupID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("component group not found")
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) DeleteComponentGroup(groupID string) error {
+	// Due to CASCADE constraints, deleting the group will automatically delete
+	// all associated components
+	query := `DELETE FROM component_groups WHERE id = ?`
+	result, err := r.db.Exec(query, groupID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("component group not found")
+	}
+
+	return nil
 }
 
 func (r *SQLiteRepository) CreateMember(member *Member) error {

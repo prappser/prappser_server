@@ -201,11 +201,18 @@ func (s *InvitationService) ValidateToken(tokenString string) (*InviteTokenClaim
 // GetInviteInfo returns public information about an invitation (no auth required)
 // This is used by the join screen to display invite details before authentication
 func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, error) {
+	log.Debug().Msg("[INVITE] GetInviteInfo called")
+
 	// Validate token
 	claims, err := s.ValidateToken(tokenString)
 	if err != nil {
+		log.Debug().Err(err).Msg("[INVITE] Token validation failed")
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
+	log.Debug().
+		Str("inviteId", claims.InviteID).
+		Str("appId", claims.ApplicationID).
+		Msg("[INVITE] Token validated")
 
 	// Check expiration from JWT
 	isExpired := false
@@ -216,12 +223,19 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 	// Get invitation from database
 	invite, err := s.repo.GetByID(claims.InviteID)
 	if err != nil {
+		log.Debug().
+			Str("inviteId", claims.InviteID).
+			Err(err).
+			Msg("[INVITE] Invite not found in database")
 		return &InviteInfo{
 			InviteID:  claims.InviteID,
 			IsExpired: isExpired,
 			IsValid:   false,
 		}, nil
 	}
+	log.Debug().
+		Str("inviteId", invite.ID).
+		Msg("[INVITE] Invite found in database")
 
 	// Check max uses
 	isMaxUsesReached := false
@@ -229,17 +243,56 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 		isMaxUsesReached = true
 	}
 
-	// TODO: Get application and host details
-	// For now, return minimal info
+	// Fetch actual application name
+	log.Debug().
+		Str("appId", invite.ApplicationID).
+		Msg("[INVITE] Fetching application details")
+	applicationName := "Unknown Application"
+	app, err := s.appRepo.GetApplicationByID(invite.ApplicationID)
+	if err == nil && app != nil {
+		applicationName = app.Name
+		log.Debug().
+			Str("appName", app.Name).
+			Msg("[INVITE] Application found")
+	} else {
+		log.Debug().
+			Err(err).
+			Msg("[INVITE] Application fetch failed, using fallback")
+	}
+
+	// Fetch actual creator username
+	log.Debug().
+		Str("publicKey", invite.CreatedByPublicKey[:20]+"...").
+		Msg("[INVITE] Fetching creator details")
+	creatorUsername := "Unknown User"
+	creator, err := s.userRepository.GetUserByPublicKey(invite.CreatedByPublicKey)
+	if err == nil && creator != nil {
+		creatorUsername = creator.Username
+		log.Debug().
+			Str("username", creator.Username).
+			Msg("[INVITE] Creator found")
+	} else {
+		log.Debug().
+			Err(err).
+			Msg("[INVITE] Creator fetch failed, using fallback")
+	}
+
 	info := &InviteInfo{
 		InviteID:        invite.ID,
-		ApplicationName: "Application", // TODO: Fetch from ApplicationRepository
-		CreatorUsername: "Host",        // TODO: Fetch from UserRepository
+		ApplicationName: applicationName,
+		CreatorUsername: creatorUsername,
 		Role:            invite.Role,
 		ExpiresAt:       claims.ExpiresAt,
 		IsExpired:       isExpired,
 		IsValid:         !isExpired && !isMaxUsesReached,
 	}
+
+	log.Debug().
+		Str("inviteId", invite.ID).
+		Bool("isValid", info.IsValid).
+		Bool("isExpired", isExpired).
+		Bool("isMaxUsesReached", isMaxUsesReached).
+		Msg("[INVITE] GetInviteInfo complete")
 
 	return info, nil
 }
@@ -344,25 +397,51 @@ type JoinResult struct {
 
 // Join handles the complete join flow with transaction
 func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*JoinResult, error) {
+	log.Debug().
+		Str("username", userName).
+		Str("publicKey", userPublicKey[:20]+"...").
+		Msg("[INVITE] Join attempt started")
+
 	// Validate token
 	claims, err := s.ValidateToken(tokenString)
 	if err != nil {
+		log.Debug().Err(err).Msg("[INVITE] Join failed: token validation failed")
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
+	log.Debug().
+		Str("inviteId", claims.InviteID).
+		Str("appId", claims.ApplicationID).
+		Msg("[INVITE] Token validated")
 
 	// Check expiration
 	if claims.ExpiresAt != nil && time.Now().Unix() > *claims.ExpiresAt {
+		log.Debug().
+			Str("inviteId", claims.InviteID).
+			Msg("[INVITE] Join failed: invitation expired")
 		return nil, fmt.Errorf("invitation expired")
 	}
 
 	// Get invitation
 	invite, err := s.repo.GetByID(claims.InviteID)
 	if err != nil {
+		log.Debug().
+			Str("inviteId", claims.InviteID).
+			Err(err).
+			Msg("[INVITE] Join failed: invitation not found")
 		return nil, fmt.Errorf("invitation not found or revoked: %w", err)
 	}
+	log.Debug().
+		Str("inviteId", invite.ID).
+		Str("appId", invite.ApplicationID).
+		Msg("[INVITE] Invitation found")
 
 	// Check max uses
 	if invite.MaxUses != nil && invite.UsedCount >= *invite.MaxUses {
+		log.Debug().
+			Str("inviteId", invite.ID).
+			Int("usedCount", invite.UsedCount).
+			Int("maxUses", *invite.MaxUses).
+			Msg("[INVITE] Join failed: max uses reached")
 		return nil, fmt.Errorf("invitation has reached maximum uses")
 	}
 
@@ -438,17 +517,26 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 		ApplicationID: invite.ApplicationID,
 	}
 
+	log.Debug().
+		Str("eventId", evt.ID).
+		Str("inviteId", invite.ID).
+		Msg("[INVITE] Producing member_added event")
+
 	// Produce event (validates, sequences, persists, and executes - no authorization needed)
 	// Authorization was already done by validating the invitation token
 	_, err = s.eventService.ProduceEvent(context.Background(), evt)
 	if err != nil {
+		log.Error().
+			Str("inviteId", invite.ID).
+			Err(err).
+			Msg("[INVITE] Failed to produce member_added event")
 		return nil, fmt.Errorf("failed to produce member_added event: %w", err)
 	}
 
 	log.Debug().
 		Str("applicationId", invite.ApplicationID).
 		Str("userPublicKey", userPublicKey[:20]+"...").
-		Msg("[JOIN_SERVICE] member_added event produced and executed")
+		Msg("[INVITE] member_added event produced and executed")
 
 	// Begin transaction for invitation usage tracking
 	tx, err := s.db.Begin()
@@ -473,10 +561,13 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Debug().
+	log.Info().
+		Str("inviteId", invite.ID).
 		Str("applicationId", invite.ApplicationID).
+		Str("username", userName).
 		Str("userPublicKey", userPublicKey[:20]+"...").
-		Msg("[JOIN_SERVICE] Join successful - member created via event")
+		Str("role", invite.Role).
+		Msg("[INVITE] Join successful - new member added")
 
 	return &JoinResult{
 		ApplicationID: invite.ApplicationID,

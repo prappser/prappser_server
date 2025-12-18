@@ -11,8 +11,16 @@ type ApplicationRepository interface {
 	GetComponentGroupsByApplicationID(appID string) ([]*ComponentGroup, error)
 	
 	CreateComponent(component *Component) error
+	GetComponentByID(componentID string) (*Component, error)
 	GetComponentsByGroupID(groupID string) ([]*Component, error)
 	GetComponentsByApplicationID(appID string) ([]*Component, error)
+	UpdateComponentData(componentID string, data map[string]interface{}) error
+	UpdateComponentIndex(componentID string, index int) error
+	DeleteComponent(componentID string) error
+
+	GetComponentGroupByID(groupID string) (*ComponentGroup, error)
+	UpdateComponentGroupIndex(groupID string, index int) error
+	DeleteComponentGroup(groupID string) error
 	
 	CreateMember(member *Member) error
 	GetMembersByApplicationID(appID string) ([]*Member, error)

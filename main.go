@@ -4,6 +4,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/prappser/prappser_server/internal"
 	"github.com/prappser/prappser_server/internal/application"
@@ -12,11 +14,37 @@ import (
 	"github.com/prappser/prappser_server/internal/keys"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 )
 
+func initLogging() {
+	level := os.Getenv("LOG_LEVEL")
+	if level == "" {
+		level = "info" // Default level
+	}
+
+	switch strings.ToLower(level) {
+	case "debug":
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	case "info":
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	case "warn":
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	case "error":
+		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	default:
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		log.Warn().Str("level", level).Msg("Unknown log level, defaulting to info")
+	}
+
+	log.Info().Str("level", level).Msg("Logging initialized")
+}
+
 func main() {
+	initLogging()
+
 	// Initialize RSA keys (generate on first run)
 	privateKey, publicKey, err := keys.GetOrGenerateRSAKeyPair()
 	if err != nil {

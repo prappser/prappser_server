@@ -194,6 +194,79 @@ func (r *MemoryRepository) GetComponentsByApplicationID(appID string) ([]*Compon
 	return result, nil
 }
 
+func (r *MemoryRepository) GetComponentByID(componentID string) (*Component, error) {
+	comp, exists := r.components[componentID]
+	if !exists {
+		return nil, fmt.Errorf("component not found")
+	}
+	return comp, nil
+}
+
+func (r *MemoryRepository) UpdateComponentData(componentID string, data map[string]interface{}) error {
+	comp, exists := r.components[componentID]
+	if !exists {
+		return fmt.Errorf("component not found")
+	}
+	comp.Data = data
+	return nil
+}
+
+func (r *MemoryRepository) UpdateComponentIndex(componentID string, index int) error {
+	comp, exists := r.components[componentID]
+	if !exists {
+		return fmt.Errorf("component not found")
+	}
+	comp.Index = index
+	return nil
+}
+
+func (r *MemoryRepository) DeleteComponent(componentID string) error {
+	_, exists := r.components[componentID]
+	if !exists {
+		return fmt.Errorf("component not found")
+	}
+	delete(r.components, componentID)
+	return nil
+}
+
+func (r *MemoryRepository) GetComponentGroupByID(groupID string) (*ComponentGroup, error) {
+	group, exists := r.componentGroups[groupID]
+	if !exists {
+		return nil, fmt.Errorf("component group not found")
+	}
+	return group, nil
+}
+
+func (r *MemoryRepository) UpdateComponentGroupIndex(groupID string, index int) error {
+	group, exists := r.componentGroups[groupID]
+	if !exists {
+		return fmt.Errorf("component group not found")
+	}
+	group.Index = index
+	return nil
+}
+
+func (r *MemoryRepository) DeleteComponentGroup(groupID string) error {
+	_, exists := r.componentGroups[groupID]
+	if !exists {
+		return fmt.Errorf("component group not found")
+	}
+
+	// Delete associated components
+	var componentsToDelete []string
+	for compID, comp := range r.components {
+		if comp.ComponentGroupID == groupID {
+			componentsToDelete = append(componentsToDelete, compID)
+		}
+	}
+	for _, compID := range componentsToDelete {
+		delete(r.components, compID)
+	}
+
+	delete(r.componentGroups, groupID)
+	return nil
+}
+
 func (r *MemoryRepository) CreateMember(member *Member) error {
 	r.members[member.ID] = member
 	return nil

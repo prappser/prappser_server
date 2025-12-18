@@ -76,6 +76,12 @@ func AuthorizeEvent(event *Event, submitter *user.User, app *application.Applica
 			return fmt.Errorf("%w: only owner can revoke invites", ErrUnauthorized)
 		}
 
+	case EventTypeComponentDataChanged:
+		// Any member can update component data
+
+	case EventTypeApplicationAfterEditModeChanged:
+		// Any member can modify application structure
+
 	default:
 		return fmt.Errorf("%w: unknown event type: %s", ErrUnauthorized, event.Type)
 	}
