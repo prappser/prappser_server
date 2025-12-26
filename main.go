@@ -10,6 +10,7 @@ import (
 	"github.com/prappser/prappser_server/internal"
 	"github.com/prappser/prappser_server/internal/application"
 	"github.com/prappser/prappser_server/internal/event"
+	"github.com/prappser/prappser_server/internal/health"
 	"github.com/prappser/prappser_server/internal/invitation"
 	"github.com/prappser/prappser_server/internal/keys"
 	"github.com/prappser/prappser_server/internal/status"
@@ -69,6 +70,7 @@ func main() {
 	userService := user.NewUserService(userRepository, config.Users, privateKey, publicKey)
 	userEndpoints := user.NewEndpoints(userRepository, config.Users, privateKey, publicKey, userService)
 	statusEndpoints := status.NewEndpoints("1.0.0")
+	healthEndpoints := health.NewEndpoints("1.0.0")
 
 	// Initialize application repository
 	appRepository := application.NewSQLiteRepository(db)
@@ -105,7 +107,7 @@ func main() {
 		Str("externalURL", config.ExternalURL).
 		Msg("Server configuration")
 
-	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
+	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, healthEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
 
 	serverAddr := fmt.Sprintf(":%s", config.Port)
 	log.Info().Str("addr", serverAddr).Msg("Starting server")

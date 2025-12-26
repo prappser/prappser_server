@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# IDE and editor files
+.idea
+.vscode
+*.swp
+*.swo
+.serena
+
+# Build artifacts
+prappser_server
+pkg
+
+# Debug files
+__debug*
+
+# Local config and database
+files/config.yaml
+files/prappser.db
+files/*.db
+
+# Claude/AI assistant files
+.claude/
+
+# Documentation (not needed in container)
+*.md
+!files/migrations/*.md
+
+# Test files
+*_test.go
+
+# Deploy files (except what we need)
+deploy/aws
+deploy/fly-io

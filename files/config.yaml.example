@@ -1,0 +1,34 @@
+# prappser-server Configuration Example
+# Copy this file to config.yaml and update the values
+
+# User authentication settings
+users:
+  # Master password MD5 hash for admin registration
+  # Generate with: echo -n "your_password" | md5sum | cut -d' ' -f1
+  # IMPORTANT: Replace with your own hash!
+  master_password_md5_hash: "REPLACE_WITH_YOUR_MD5_HASH"
+
+  # Registration token TTL in seconds (how long a registration token is valid)
+  registration_token_ttl_sec: 10
+
+  # JWT token expiration in hours
+  jwt_expiration_hours: 24
+
+  # Challenge TTL in seconds (for authentication challenges)
+  challenge_ttl_sec: 300
+
+# Server port (optional - can be overridden via PORT env var)
+# port: 4545
+
+# External URL (optional - can be overridden via EXTERNAL_URL env var)
+# This is the public URL clients use to connect
+# external_url: https://your-app.ondigitalocean.app
+
+# Allowed CORS origins (optional - can be overridden via ALLOWED_ORIGINS env var)
+# List of domains allowed to make requests to the server
+# Use "*" to allow all origins (not recommended for production)
+allowed_origins:
+  - https://prappser.app
+  # Add your Flutter app domains here
+  # - https://your-subdomain.prappser.app
+  # - http://localhost:8080

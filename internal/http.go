@@ -5,6 +5,7 @@ import (
 
 	"github.com/prappser/prappser_server/internal/application"
 	"github.com/prappser/prappser_server/internal/event"
+	"github.com/prappser/prappser_server/internal/health"
 	"github.com/prappser/prappser_server/internal/invitation"
 	"github.com/prappser/prappser_server/internal/middleware"
 	"github.com/prappser/prappser_server/internal/status"
@@ -12,7 +13,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
+func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
 	corsMiddleware := middleware.NewCORSMiddleware(config.AllowedOrigins)
 
@@ -26,6 +27,8 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 			userEndpoints.GetChallenge(ctx)
 		case path == "/users/auth":
 			userEndpoints.UserAuth(ctx)
+		case path == "/health":
+			healthEndpoints.Health(ctx)
 		case path == "/status":
 			authMiddleware.RequireAuth(statusEndpoints.Status)(ctx)
 		

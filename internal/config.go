@@ -3,9 +3,11 @@ package internal
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/prappser/prappser_server/internal/user"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -19,14 +21,56 @@ type Config struct {
 func LoadConfig() (*Config, error) {
 	viper.SetConfigFile("files/config.yaml")
 
-	// Try to read the config and provide more detailed error information
+	// Config file is optional - if it doesn't exist, we use env vars only
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		log.Info().Msg("Config file not found, using environment variables only")
 	}
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Set defaults for user config
+	if config.Users.JWTExpirationHours == 0 {
+		config.Users.JWTExpirationHours = 24
+	}
+	if config.Users.ChallengeTTLSec == 0 {
+		config.Users.ChallengeTTLSec = 300
+	}
+	if config.Users.RegistrationTokenTTLSec == 0 {
+		config.Users.RegistrationTokenTTLSec = 10
+	}
+
+	// Allow MASTER_PASSWORD_MD5_HASH environment variable to override config
+	if hash := os.Getenv("MASTER_PASSWORD_MD5_HASH"); hash != "" {
+		config.Users.MasterPasswordMD5Hash = hash
+	}
+
+	// Allow JWT_EXPIRATION_HOURS environment variable to override config
+	if jwtHours := os.Getenv("JWT_EXPIRATION_HOURS"); jwtHours != "" {
+		if hours, err := strconv.Atoi(jwtHours); err == nil {
+			config.Users.JWTExpirationHours = hours
+		}
+	}
+
+	// Allow CHALLENGE_TTL_SEC environment variable to override config
+	if ttl := os.Getenv("CHALLENGE_TTL_SEC"); ttl != "" {
+		if seconds, err := strconv.Atoi(ttl); err == nil {
+			config.Users.ChallengeTTLSec = seconds
+		}
+	}
+
+	// Allow REGISTRATION_TOKEN_TTL_SEC environment variable to override config
+	if ttl := os.Getenv("REGISTRATION_TOKEN_TTL_SEC"); ttl != "" {
+		if seconds, err := strconv.Atoi(ttl); err == nil {
+			config.Users.RegistrationTokenTTLSec = int32(seconds)
+		}
+	}
+
+	// Validate required config - master password hash must be set
+	if config.Users.MasterPasswordMD5Hash == "" {
+		return nil, fmt.Errorf("MASTER_PASSWORD_MD5_HASH environment variable or users.master_password_md5_hash in config.yaml is required")
 	}
 
 	// Allow PORT environment variable to override config
