@@ -5,17 +5,17 @@ import (
 	"fmt"
 )
 
-type sqlite3UserRepository struct {
+type userRepository struct {
 	db *sql.DB
 }
 
-func NewSQLite3UserRepository(db *sql.DB) UserRepository {
-	return &sqlite3UserRepository{db: db}
+func NewUserRepository(db *sql.DB) UserRepository {
+	return &userRepository{db: db}
 }
 
-func (r *sqlite3UserRepository) CreateUser(user *User) error {
+func (r *userRepository) CreateUser(user *User) error {
 	_, err := r.db.Exec(
-		"INSERT INTO users (public_key, username, role, created_at) VALUES (?, ?, ?, ?)",
+		"INSERT INTO users (public_key, username, role, created_at) VALUES ($1, $2, $3, $4)",
 		user.PublicKey, user.Username, user.Role, user.CreatedAt,
 	)
 	if err != nil {
@@ -24,10 +24,10 @@ func (r *sqlite3UserRepository) CreateUser(user *User) error {
 	return nil
 }
 
-func (r *sqlite3UserRepository) GetUserByPublicKey(publicKey string) (*User, error) {
+func (r *userRepository) GetUserByPublicKey(publicKey string) (*User, error) {
 	var user User
 	err := r.db.QueryRow(
-		"SELECT public_key, username, role, created_at FROM users WHERE public_key = ?",
+		"SELECT public_key, username, role, created_at FROM users WHERE public_key = $1",
 		publicKey,
 	).Scan(&user.PublicKey, &user.Username, &user.Role, &user.CreatedAt)
 
@@ -40,10 +40,10 @@ func (r *sqlite3UserRepository) GetUserByPublicKey(publicKey string) (*User, err
 	return &user, nil
 }
 
-func (r *sqlite3UserRepository) GetUserByUsername(username string) (*User, error) {
+func (r *userRepository) GetUserByUsername(username string) (*User, error) {
 	var user User
 	err := r.db.QueryRow(
-		"SELECT public_key, username, role, created_at FROM users WHERE username = ?",
+		"SELECT public_key, username, role, created_at FROM users WHERE username = $1",
 		username,
 	).Scan(&user.PublicKey, &user.Username, &user.Role, &user.CreatedAt)
 
@@ -56,9 +56,9 @@ func (r *sqlite3UserRepository) GetUserByUsername(username string) (*User, error
 	return &user, nil
 }
 
-func (r *sqlite3UserRepository) UpdateUserRole(publicKey string, role string) error {
+func (r *userRepository) UpdateUserRole(publicKey string, role string) error {
 	_, err := r.db.Exec(
-		"UPDATE users SET role = ? WHERE public_key = ?",
+		"UPDATE users SET role = $1 WHERE public_key = $2",
 		role, publicKey,
 	)
 	if err != nil {

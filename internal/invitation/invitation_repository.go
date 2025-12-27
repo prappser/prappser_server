@@ -16,23 +16,20 @@ type InvitationRepository interface {
 	HasBeenUsedBy(inviteID, userPublicKey string) (bool, error)
 }
 
-// SQLiteInvitationRepository implements InvitationRepository using SQLite
-type SQLiteInvitationRepository struct {
+type invitationRepository struct {
 	db *sql.DB
 }
 
-// NewSQLiteInvitationRepository creates a new SQLiteInvitationRepository
-func NewSQLiteInvitationRepository(db *sql.DB) *SQLiteInvitationRepository {
-	return &SQLiteInvitationRepository{db: db}
+func NewInvitationRepository(db *sql.DB) *invitationRepository {
+	return &invitationRepository{db: db}
 }
 
-// Create inserts a new invitation into the database
-func (r *SQLiteInvitationRepository) Create(invite *Invitation) error {
+func (r *invitationRepository) Create(invite *Invitation) error {
 	query := `
 		INSERT INTO invitations (
 			id, application_id, created_by_public_key,
 			role, max_uses, used_count, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	_, err := r.db.Exec(query,
@@ -48,13 +45,12 @@ func (r *SQLiteInvitationRepository) Create(invite *Invitation) error {
 	return err
 }
 
-// GetByID retrieves an invitation by its ID
-func (r *SQLiteInvitationRepository) GetByID(id string) (*Invitation, error) {
+func (r *invitationRepository) GetByID(id string) (*Invitation, error) {
 	query := `
 		SELECT id, application_id, created_by_public_key,
 		       role, max_uses, used_count, created_at
 		FROM invitations
-		WHERE id = ?
+		WHERE id = $1
 	`
 
 	invite := &Invitation{}
@@ -78,9 +74,8 @@ func (r *SQLiteInvitationRepository) GetByID(id string) (*Invitation, error) {
 	return invite, nil
 }
 
-// Delete removes an invitation from the database (hard delete for revocation)
-func (r *SQLiteInvitationRepository) Delete(id string) error {
-	query := `DELETE FROM invitations WHERE id = ?`
+func (r *invitationRepository) Delete(id string) error {
+	query := `DELETE FROM invitations WHERE id = $1`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -99,12 +94,11 @@ func (r *SQLiteInvitationRepository) Delete(id string) error {
 	return nil
 }
 
-// IncrementUseCount increments the used_count for an invitation
-func (r *SQLiteInvitationRepository) IncrementUseCount(id string) error {
+func (r *invitationRepository) IncrementUseCount(id string) error {
 	query := `
 		UPDATE invitations
 		SET used_count = used_count + 1
-		WHERE id = ?
+		WHERE id = $1
 	`
 
 	result, err := r.db.Exec(query, id)
@@ -124,24 +118,22 @@ func (r *SQLiteInvitationRepository) IncrementUseCount(id string) error {
 	return nil
 }
 
-// RecordUse records that a user joined via an invitation
-func (r *SQLiteInvitationRepository) RecordUse(inviteID, userPublicKey string, useID string) error {
+func (r *invitationRepository) RecordUse(inviteID, userPublicKey string, useID string) error {
 	query := `
 		INSERT INTO invitation_uses (id, invitation_id, user_public_key, used_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 	`
 
-	_, err := r.db.Exec(query, useID, inviteID, userPublicKey, 0) // 0 will be replaced with actual timestamp in service
+	_, err := r.db.Exec(query, useID, inviteID, userPublicKey, 0)
 	return err
 }
 
-// GetByApplicationID retrieves all invitations for an application
-func (r *SQLiteInvitationRepository) GetByApplicationID(appID string) ([]*Invitation, error) {
+func (r *invitationRepository) GetByApplicationID(appID string) ([]*Invitation, error) {
 	query := `
 		SELECT id, application_id, created_by_public_key,
 		       role, max_uses, used_count, created_at
 		FROM invitations
-		WHERE application_id = ?
+		WHERE application_id = $1
 		ORDER BY created_at DESC
 	`
 
@@ -176,12 +168,11 @@ func (r *SQLiteInvitationRepository) GetByApplicationID(appID string) ([]*Invita
 	return invitations, nil
 }
 
-// HasBeenUsedBy checks if an invitation has been used by a specific user
-func (r *SQLiteInvitationRepository) HasBeenUsedBy(inviteID, userPublicKey string) (bool, error) {
+func (r *invitationRepository) HasBeenUsedBy(inviteID, userPublicKey string) (bool, error) {
 	query := `
 		SELECT COUNT(*)
 		FROM invitation_uses
-		WHERE invitation_id = ? AND user_public_key = ?
+		WHERE invitation_id = $1 AND user_public_key = $2
 	`
 
 	var count int

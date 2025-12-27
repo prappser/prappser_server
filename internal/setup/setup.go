@@ -276,7 +276,7 @@ func (s *SetupEndpoints) SetRailwayToken(ctx *fasthttp.RequestCtx) {
 
 	// Store the token in the setup_config table
 	_, err := s.db.Exec(`
-		INSERT INTO setup_config (id, railway_token) VALUES ('default', ?)
+		INSERT INTO setup_config (id, railway_token) VALUES ('default', $1)
 		ON CONFLICT(id) DO UPDATE SET railway_token = excluded.railway_token
 	`, req.Token)
 

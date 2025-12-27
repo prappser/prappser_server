@@ -67,14 +67,14 @@ func main() {
 	}
 
 	// Initialize user components
-	userRepository := user.NewSQLite3UserRepository(db)
+	userRepository := user.NewUserRepository(db)
 	userService := user.NewUserService(userRepository, config.Users, privateKey, publicKey)
 	userEndpoints := user.NewEndpoints(userRepository, config.Users, privateKey, publicKey, userService)
 	statusEndpoints := status.NewEndpoints("1.0.0")
 	healthEndpoints := health.NewEndpoints("1.0.0")
 
 	// Initialize application repository
-	appRepository := application.NewSQLiteRepository(db)
+	appRepository := application.NewRepository(db)
 
 	// Initialize event components (must be before application service, needs app repository)
 	eventRepository := event.NewEventRepository(db)
@@ -99,7 +99,7 @@ func main() {
 	log.Info().Msg("Event cleanup scheduler started (daily at 2 AM, 7 days retention)")
 
 	// Initialize invitation components (needs app repo, user repo, and event service)
-	invitationRepository := invitation.NewSQLiteInvitationRepository(db)
+	invitationRepository := invitation.NewInvitationRepository(db)
 	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, db, config.ExternalURL, userRepository, eventService)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
 
