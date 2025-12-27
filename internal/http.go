@@ -8,19 +8,33 @@ import (
 	"github.com/prappser/prappser_server/internal/health"
 	"github.com/prappser/prappser_server/internal/invitation"
 	"github.com/prappser/prappser_server/internal/middleware"
+	"github.com/prappser/prappser_server/internal/setup"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
 	"github.com/valyala/fasthttp"
 )
 
-func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints) fasthttp.RequestHandler {
+func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints, setupEndpoints *setup.SetupEndpoints) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
 	corsMiddleware := middleware.NewCORSMiddleware(config.AllowedOrigins)
 
 	handler := func(ctx *fasthttp.RequestCtx) {
 		path := string(ctx.Path())
-		
+
 		switch {
+		// Setup/landing page - shows URL copy page before owner registration
+		case path == "/":
+			setupEndpoints.LandingPage(ctx)
+
+		// Railway setup endpoint - store token for server self-management
+		case path == "/setup/railway":
+			method := string(ctx.Method())
+			if method == "POST" {
+				authMiddleware.RequireRole(user.RoleOwner, setupEndpoints.SetRailwayToken)(ctx)
+			} else {
+				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+			}
+
 		case path == "/users/owners/register":
 			userEndpoints.OwnerRegister(ctx)
 		case path == "/users/challenge":

@@ -13,6 +13,7 @@ import (
 	"github.com/prappser/prappser_server/internal/health"
 	"github.com/prappser/prappser_server/internal/invitation"
 	"github.com/prappser/prappser_server/internal/keys"
+	"github.com/prappser/prappser_server/internal/setup"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
 	"github.com/rs/zerolog"
@@ -102,12 +103,15 @@ func main() {
 	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, db, config.ExternalURL, userRepository, eventService)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
 
+	// Initialize setup endpoints (landing page + railway token management)
+	setupEndpoints := setup.NewSetupEndpoints(db, config.ExternalURL)
+
 	log.Info().
 		Str("port", config.Port).
 		Str("externalURL", config.ExternalURL).
 		Msg("Server configuration")
 
-	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, healthEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints)
+	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, healthEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints, setupEndpoints)
 
 	serverAddr := fmt.Sprintf(":%s", config.Port)
 	log.Info().Str("addr", serverAddr).Msg("Starting server")
