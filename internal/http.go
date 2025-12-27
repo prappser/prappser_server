@@ -22,10 +22,6 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 		path := string(ctx.Path())
 
 		switch {
-		// Setup/landing page - shows URL copy page before owner registration
-		case path == "/":
-			setupEndpoints.LandingPage(ctx)
-
 		// Railway setup endpoint - store token for server self-management
 		case path == "/setup/railway":
 			method := string(ctx.Method())

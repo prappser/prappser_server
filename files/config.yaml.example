@@ -3,10 +3,9 @@
 
 # User authentication settings
 users:
-  # Master password MD5 hash for admin registration
-  # Generate with: echo -n "your_password" | md5sum | cut -d' ' -f1
-  # IMPORTANT: Replace with your own hash!
-  master_password_md5_hash: "REPLACE_WITH_YOUR_MD5_HASH"
+  # Master password for admin registration
+  # IMPORTANT: Replace with your own password!
+  master_password: "REPLACE_WITH_YOUR_PASSWORD"
 
   # Registration token TTL in seconds (how long a registration token is valid)
   registration_token_ttl_sec: 10

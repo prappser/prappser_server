@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -42,9 +44,14 @@ func LoadConfig() (*Config, error) {
 		config.Users.RegistrationTokenTTLSec = 10
 	}
 
-	// Allow MASTER_PASSWORD_MD5_HASH environment variable to override config
-	if hash := os.Getenv("MASTER_PASSWORD_MD5_HASH"); hash != "" {
-		config.Users.MasterPasswordMD5Hash = hash
+	// Process master password: env var takes priority, then config file
+	if password := os.Getenv("MASTER_PASSWORD"); password != "" {
+		hash := md5.Sum([]byte(password))
+		config.Users.MasterPasswordMD5Hash = hex.EncodeToString(hash[:])
+	} else if password := viper.GetString("users.master_password"); password != "" {
+		// Config file: plain password
+		hash := md5.Sum([]byte(password))
+		config.Users.MasterPasswordMD5Hash = hex.EncodeToString(hash[:])
 	}
 
 	// Allow JWT_EXPIRATION_HOURS environment variable to override config
@@ -68,9 +75,9 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
-	// Validate required config - master password hash must be set
+	// Validate required config - master password must be set
 	if config.Users.MasterPasswordMD5Hash == "" {
-		return nil, fmt.Errorf("MASTER_PASSWORD_MD5_HASH environment variable or users.master_password_md5_hash in config.yaml is required")
+		return nil, fmt.Errorf("MASTER_PASSWORD environment variable is required")
 	}
 
 	// Allow PORT environment variable to override config

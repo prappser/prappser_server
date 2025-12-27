@@ -103,8 +103,8 @@ func main() {
 	invitationService := invitation.NewInvitationService(invitationRepository, privateKey, publicKey, appRepository, db, config.ExternalURL, userRepository, eventService)
 	invitationEndpoints := invitation.NewInvitationEndpoints(invitationService)
 
-	// Initialize setup endpoints (landing page + railway token management)
-	setupEndpoints := setup.NewSetupEndpoints(db, config.ExternalURL)
+	// Initialize setup endpoints (railway token management)
+	setupEndpoints := setup.NewSetupEndpoints(db)
 
 	log.Info().
 		Str("port", config.Port).
