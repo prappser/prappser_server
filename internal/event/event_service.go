@@ -11,15 +11,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type EventService struct {
-	repo    *EventRepository
-	appRepo application.ApplicationRepository
+// EventBroadcaster broadcasts events to connected WebSocket clients
+type EventBroadcaster interface {
+	BroadcastToApplication(applicationID string, event *Event)
 }
 
-func NewEventService(repo *EventRepository, appRepo application.ApplicationRepository) *EventService {
+type EventService struct {
+	repo        *EventRepository
+	appRepo     application.ApplicationRepository
+	broadcaster EventBroadcaster
+}
+
+func NewEventService(repo *EventRepository, appRepo application.ApplicationRepository, broadcaster EventBroadcaster) *EventService {
 	return &EventService{
-		repo:    repo,
-		appRepo: appRepo,
+		repo:        repo,
+		appRepo:     appRepo,
+		broadcaster: broadcaster,
 	}
 }
 
@@ -109,6 +116,11 @@ func (s *EventService) AcceptEvent(ctx context.Context, event *Event, submitter 
 		Int64("sequence", event.SequenceNumber).
 		Msg("[EVENT] Accepted successfully")
 
+	// Broadcast to WebSocket clients
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToApplication(event.ApplicationID, event)
+	}
+
 	return event, nil
 }
 
@@ -187,6 +199,11 @@ func (s *EventService) ProduceEvent(ctx context.Context, event *Event) (*Event, 
 		Str("type", string(event.Type)).
 		Int64("sequence", event.SequenceNumber).
 		Msg("[EVENT] Server-produced event accepted successfully")
+
+	// Broadcast to WebSocket clients
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToApplication(event.ApplicationID, event)
+	}
 
 	return event, nil
 }

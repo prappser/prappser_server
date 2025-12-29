@@ -1,0 +1,93 @@
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: Prappser
+spec:
+  description: Prappser server - event-driven application sync with PostgreSQL
+  tags:
+    - Go
+    - PostgreSQL
+    - Backend
+  readme: |
+    # Prappser Server
+
+    Event-driven application sync server with PostgreSQL backend.
+
+    ## Configuration
+    - **MASTER_PASSWORD**: MD5 hash of your admin password
+    - **ALLOWED_ORIGINS**: Comma-separated allowed CORS origins
+
+    ## Endpoints
+    - HTTP API: `https://{domain}/api/*`
+    - WebSocket: `wss://{domain}/ws`
+
+  variables:
+    - key: MASTER_PASSWORD
+      type: STRING
+      name: Master Password
+      description: MD5 hash of admin password (use `echo -n 'password' | md5sum`)
+    - key: ALLOWED_ORIGINS
+      type: STRING
+      name: Allowed Origins
+      description: Comma-separated list of allowed CORS origins
+      default: "*"
+    - key: SERVER_DOMAIN
+      type: DOMAIN
+      name: Server Domain
+      description: Public domain for the server
+
+  services:
+    - name: postgresql
+      icon: https://raw.githubusercontent.com/zeabur/service-icons/main/marketplace/postgresql.svg
+      template: PREBUILT
+      spec:
+        source:
+          image: postgres:16-alpine
+        ports:
+          - id: database
+            port: 5432
+            type: TCP
+        volumes:
+          - id: data
+            dir: /var/lib/postgresql/data
+        env:
+          POSTGRES_DB:
+            default: prappser
+          POSTGRES_PASSWORD:
+            default: ${PASSWORD}
+            expose: true
+
+    - name: server
+      template: PREBUILT
+      dependencies:
+        - postgresql
+      domainKey: SERVER_DOMAIN
+      spec:
+        source:
+          image: ghcr.io/prappser/prappser_server:latest
+        ports:
+          - id: http
+            port: 4545
+            type: HTTP
+        env:
+          DATABASE_URL:
+            default: postgres://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/prappser
+          MASTER_PASSWORD:
+            default: ${MASTER_PASSWORD}
+          PORT:
+            default: "4545"
+          EXTERNAL_URL:
+            default: https://${SERVER_DOMAIN}
+          ALLOWED_ORIGINS:
+            default: ${ALLOWED_ORIGINS}
+          LOG_LEVEL:
+            default: info
+        instructions:
+          - type: DOMAIN
+            title: API Endpoint
+            content: https://${SERVER_DOMAIN}/api
+            category: Endpoints
+          - type: DOMAIN
+            title: WebSocket
+            content: wss://${SERVER_DOMAIN}/ws
+            category: Endpoints

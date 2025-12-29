@@ -11,10 +11,11 @@ import (
 	"github.com/prappser/prappser_server/internal/setup"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
+	"github.com/prappser/prappser_server/internal/websocket"
 	"github.com/valyala/fasthttp"
 )
 
-func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints, setupEndpoints *setup.SetupEndpoints) fasthttp.RequestHandler {
+func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints, setupEndpoints *setup.SetupEndpoints, wsHandler *websocket.Handler) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
 	corsMiddleware := middleware.NewCORSMiddleware(config.AllowedOrigins)
 
@@ -170,6 +171,10 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 			} else {
 				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 			}
+
+		// WebSocket endpoint
+		case path == "/ws":
+			wsHandler.HandleFastHTTP(ctx)
 
 		default:
 			ctx.Error("Not Found", fasthttp.StatusNotFound)

@@ -16,6 +16,7 @@ import (
 	"github.com/prappser/prappser_server/internal/setup"
 	"github.com/prappser/prappser_server/internal/status"
 	"github.com/prappser/prappser_server/internal/user"
+	"github.com/prappser/prappser_server/internal/websocket"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
@@ -76,9 +77,14 @@ func main() {
 	// Initialize application repository
 	appRepository := application.NewRepository(db)
 
+	// Initialize WebSocket hub
+	wsHub := websocket.NewHub()
+	go wsHub.Run()
+	log.Info().Msg("WebSocket hub started")
+
 	// Initialize event components (must be before application service, needs app repository)
 	eventRepository := event.NewEventRepository(db)
-	eventService := event.NewEventService(eventRepository, appRepository)
+	eventService := event.NewEventService(eventRepository, appRepository, wsHub)
 	eventEndpoints := event.NewEventEndpoints(eventService)
 
 	// Initialize application service (events are now client-produced via POST /events)
@@ -111,11 +117,15 @@ func main() {
 		Str("externalURL", config.ExternalURL).
 		Msg("Server configuration")
 
-	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, healthEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints, setupEndpoints)
+	// Initialize WebSocket handler (integrated with FastHTTP on same port)
+	wsHandler := websocket.NewHandler(wsHub, userService)
 
+	requestHandler := internal.NewRequestHandler(config, userEndpoints, statusEndpoints, healthEndpoints, userService, appEndpoints, invitationEndpoints, eventEndpoints, setupEndpoints, wsHandler)
+
+	// Start unified FastHTTP server (REST API + WebSocket on same port)
 	serverAddr := fmt.Sprintf(":%s", config.Port)
-	log.Info().Str("addr", serverAddr).Msg("Starting server")
+	log.Info().Str("addr", serverAddr).Msg("Starting unified HTTP server (REST + WebSocket)")
 	if err := fasthttp.ListenAndServe(serverAddr, requestHandler); err != nil {
-		log.Fatal().Err(err).Msg("Error starting server")
+		log.Fatal().Err(err).Msg("Error starting HTTP server")
 	}
 }
