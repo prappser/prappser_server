@@ -14,8 +14,7 @@ spec:
     Event-driven application sync server with PostgreSQL backend.
 
     ## Configuration
-    - **MASTER_PASSWORD**: MD5 hash of your admin password
-    - **ALLOWED_ORIGINS**: Comma-separated allowed CORS origins
+    - **MASTER_PASSWORD**: Your admin password (plain text, hashed automatically by server)
 
     ## Endpoints
     - HTTP API: `https://{domain}/api/*`
@@ -25,12 +24,7 @@ spec:
     - key: MASTER_PASSWORD
       type: STRING
       name: Master Password
-      description: MD5 hash of admin password (use `echo -n 'password' | md5sum`)
-    - key: ALLOWED_ORIGINS
-      type: STRING
-      name: Allowed Origins
-      description: Comma-separated list of allowed CORS origins
-      default: "*"
+      description: Plain text admin password (will be hashed by server)
     - key: SERVER_DOMAIN
       type: DOMAIN
       name: Server Domain
@@ -79,7 +73,7 @@ spec:
           EXTERNAL_URL:
             default: https://${SERVER_DOMAIN}
           ALLOWED_ORIGINS:
-            default: ${ALLOWED_ORIGINS}
+            default: "https://prappser.app"
           LOG_LEVEL:
             default: info
         instructions:
