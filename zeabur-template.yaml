@@ -47,11 +47,21 @@ spec:
         env:
           POSTGRES_DB:
             default: prappser
+          POSTGRES_USER:
+            default: postgres
+            expose: true
           POSTGRES_PASSWORD:
             default: ${PASSWORD}
             expose: true
+          POSTGRES_HOST:
+            default: ${CONTAINER_HOSTNAME}
+            expose: true
+          POSTGRES_PORT:
+            default: "5432"
+            expose: true
 
-    - name: server
+    - name: prappser-server
+      icon: https://cdn.simpleicons.org/go/00ADD8
       template: PREBUILT
       dependencies:
         - postgresql
@@ -65,7 +75,7 @@ spec:
             type: HTTP
         env:
           DATABASE_URL:
-            default: postgres://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/prappser
+            default: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/prappser?sslmode=disable
           MASTER_PASSWORD:
             default: ${MASTER_PASSWORD}
           PORT:

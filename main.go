@@ -48,22 +48,24 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	// Initialize RSA keys (generate on first run)
-	privateKey, publicKey, err := keys.GetOrGenerateRSAKeyPair()
+	// Load config first (needed for key derivation)
+	config, err := internal.LoadConfig()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Error initializing RSA keys")
+		log.Fatal().Err(err).Msg("Error loading config")
 		return
 	}
-	log.Info().Msg("RSA keys initialized successfully")
+
+	// Derive RSA keys deterministically from master password + external URL
+	privateKey, publicKey, err := keys.DeriveRSAKeyPair(config.MasterPassword, config.ExternalURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error deriving RSA keys")
+		return
+	}
+	log.Info().Msg("RSA keys derived successfully")
 
 	db, err := internal.NewDB()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error initializing database")
-		return
-	}
-	config, err := internal.LoadConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Error loading config")
 		return
 	}
 

@@ -18,6 +18,7 @@ type Config struct {
 	Port           string      `mapstructure:"port"`
 	ExternalURL    string      `mapstructure:"external_url"`
 	AllowedOrigins []string    `mapstructure:"allowed_origins"`
+	MasterPassword string      // Original password for key derivation (not exported to config file)
 }
 
 func LoadConfig() (*Config, error) {
@@ -46,10 +47,12 @@ func LoadConfig() (*Config, error) {
 
 	// Process master password: env var takes priority, then config file
 	if password := os.Getenv("MASTER_PASSWORD"); password != "" {
+		config.MasterPassword = password
 		hash := md5.Sum([]byte(password))
 		config.Users.MasterPasswordMD5Hash = hex.EncodeToString(hash[:])
 	} else if password := viper.GetString("users.master_password"); password != "" {
 		// Config file: plain password
+		config.MasterPassword = password
 		hash := md5.Sum([]byte(password))
 		config.Users.MasterPasswordMD5Hash = hex.EncodeToString(hash[:])
 	}
