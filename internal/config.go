@@ -47,18 +47,52 @@ func maskPassword(connStr string) string {
 	return "****"
 }
 
+// resolveExternalURL resolves the external URL based on hosting provider
+// For zeabur: "myapp" -> "https://myapp.zeabur.app"
+// For zeabur: "https://myapp" -> "https://myapp.zeabur.app"
+// For zeabur: "myapp.custom.com" -> "https://myapp.custom.com"
+// For others: use as-is or localhost fallback
+func resolveExternalURL(externalURL, hostingProvider, port string) string {
+	if externalURL == "" {
+		return fmt.Sprintf("http://localhost:%s", port)
+	}
+
+	// Strip https:// or http:// prefix for analysis
+	urlWithoutScheme := externalURL
+	hasHTTPS := strings.HasPrefix(externalURL, "https://")
+	hasHTTP := strings.HasPrefix(externalURL, "http://")
+	if hasHTTPS {
+		urlWithoutScheme = strings.TrimPrefix(externalURL, "https://")
+	} else if hasHTTP {
+		urlWithoutScheme = strings.TrimPrefix(externalURL, "http://")
+	}
+
+	// Check if it's a full domain (contains a dot)
+	isFullDomain := strings.Contains(urlWithoutScheme, ".")
+
+	if hostingProvider == "zeabur" && !isFullDomain {
+		// Just a subdomain name, append .zeabur.app
+		return fmt.Sprintf("https://%s.zeabur.app", urlWithoutScheme)
+	}
+
+	// Full domain or non-zeabur hosting - ensure https prefix
+	if !hasHTTPS && !hasHTTP {
+		return fmt.Sprintf("https://%s", externalURL)
+	}
+
+	return externalURL
+}
+
 func LoadConfig() (*Config, error) {
 	// Debug: Print all relevant environment variables
 	log.Info().
 		Str("PORT", os.Getenv("PORT")).
 		Str("EXTERNAL_URL", os.Getenv("EXTERNAL_URL")).
-		Str("ZEABUR_WEB_URL", os.Getenv("ZEABUR_WEB_URL")).
-		Str("ZEABUR_WEB_DOMAIN", os.Getenv("ZEABUR_WEB_DOMAIN")).
+		Str("HOSTING_PROVIDER", os.Getenv("HOSTING_PROVIDER")).
 		Str("DATABASE_URL", maskPassword(os.Getenv("DATABASE_URL"))).
 		Str("MASTER_PASSWORD", maskString(os.Getenv("MASTER_PASSWORD"))).
 		Str("ALLOWED_ORIGINS", os.Getenv("ALLOWED_ORIGINS")).
 		Str("LOG_LEVEL", os.Getenv("LOG_LEVEL")).
-		Str("JWT_EXPIRATION_HOURS", os.Getenv("JWT_EXPIRATION_HOURS")).
 		Msg("Environment variables on startup")
 
 	viper.SetConfigFile("files/config.yaml")
@@ -132,15 +166,10 @@ func LoadConfig() (*Config, error) {
 		config.Port = "4545"
 	}
 
-	// Allow EXTERNAL_URL environment variable to override config
-	if externalURL := os.Getenv("EXTERNAL_URL"); externalURL != "" {
-		config.ExternalURL = externalURL
-	}
-
-	// If external URL is not set, construct from localhost and port
-	if config.ExternalURL == "" {
-		config.ExternalURL = fmt.Sprintf("http://localhost:%s", config.Port)
-	}
+	// Resolve EXTERNAL_URL based on HOSTING_PROVIDER
+	externalURL := os.Getenv("EXTERNAL_URL")
+	hostingProvider := os.Getenv("HOSTING_PROVIDER")
+	config.ExternalURL = resolveExternalURL(externalURL, hostingProvider, config.Port)
 
 	// Allow ALLOWED_ORIGINS environment variable to override config
 	// Format: comma-separated list, e.g., "https://prappser.app,http://localhost:8080"

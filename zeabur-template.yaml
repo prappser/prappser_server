@@ -83,7 +83,9 @@ spec:
           PORT:
             default: "4545"
           EXTERNAL_URL:
-            default: https://${SERVER_DOMAIN}.zeabur.app
+            default: ${SERVER_DOMAIN}
+          HOSTING_PROVIDER:
+            default: zeabur
           ALLOWED_ORIGINS:
             default: "https://prappser.app"
           LOG_LEVEL:
