@@ -21,7 +21,46 @@ type Config struct {
 	MasterPassword string      // Original password for key derivation (not exported to config file)
 }
 
+// maskString masks a string for safe logging (shows first 2 and last 2 chars)
+func maskString(s string) string {
+	if s == "" {
+		return "(empty)"
+	}
+	if len(s) <= 4 {
+		return "****"
+	}
+	return s[:2] + "****" + s[len(s)-2:]
+}
+
+// maskPassword masks password in connection strings
+func maskPassword(connStr string) string {
+	if connStr == "" {
+		return "(empty)"
+	}
+	// Simple mask - just show host part
+	if strings.Contains(connStr, "@") {
+		parts := strings.Split(connStr, "@")
+		if len(parts) >= 2 {
+			return "****@" + parts[len(parts)-1]
+		}
+	}
+	return "****"
+}
+
 func LoadConfig() (*Config, error) {
+	// Debug: Print all relevant environment variables
+	log.Info().
+		Str("PORT", os.Getenv("PORT")).
+		Str("EXTERNAL_URL", os.Getenv("EXTERNAL_URL")).
+		Str("ZEABUR_WEB_URL", os.Getenv("ZEABUR_WEB_URL")).
+		Str("ZEABUR_WEB_DOMAIN", os.Getenv("ZEABUR_WEB_DOMAIN")).
+		Str("DATABASE_URL", maskPassword(os.Getenv("DATABASE_URL"))).
+		Str("MASTER_PASSWORD", maskString(os.Getenv("MASTER_PASSWORD"))).
+		Str("ALLOWED_ORIGINS", os.Getenv("ALLOWED_ORIGINS")).
+		Str("LOG_LEVEL", os.Getenv("LOG_LEVEL")).
+		Str("JWT_EXPIRATION_HOURS", os.Getenv("JWT_EXPIRATION_HOURS")).
+		Msg("Environment variables on startup")
+
 	viper.SetConfigFile("files/config.yaml")
 
 	// Config file is optional - if it doesn't exist, we use env vars only
@@ -117,6 +156,16 @@ func LoadConfig() (*Config, error) {
 	if len(config.AllowedOrigins) == 0 {
 		config.AllowedOrigins = []string{"*"}
 	}
+
+	// Debug: Print final config values
+	log.Info().
+		Str("Port", config.Port).
+		Str("ExternalURL", config.ExternalURL).
+		Strs("AllowedOrigins", config.AllowedOrigins).
+		Int("JWTExpirationHours", config.Users.JWTExpirationHours).
+		Int("ChallengeTTLSec", config.Users.ChallengeTTLSec).
+		Bool("HasMasterPasswordHash", config.Users.MasterPasswordMD5Hash != "").
+		Msg("Final config loaded")
 
 	return &config, nil
 }
