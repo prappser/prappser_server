@@ -28,7 +28,7 @@ spec:
     - key: SERVER_DOMAIN
       type: DOMAIN
       name: Server Domain
-      description: Public domain for the server
+      description: Full domain for the server (e.g., myapp.zeabur.app or your custom domain)
 
   services:
     - name: postgresql
