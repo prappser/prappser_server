@@ -62,13 +62,14 @@ spec:
 
     - name: prappser-server
       icon: https://cdn.simpleicons.org/go/00ADD8
-      template: PREBUILT
+      template: GIT
       dependencies:
         - postgresql
       domainKey: SERVER_DOMAIN
       spec:
         source:
-          image: ghcr.io/prappser/prappser_server:latest
+          repoURL: https://github.com/prappser/prappser-server
+          branchName: main
         ports:
           - id: http
             port: 4545
