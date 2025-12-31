@@ -2,7 +2,7 @@
 CREATE TABLE users (
     public_key TEXT PRIMARY KEY,
     username TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role = 'owner'),
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
     created_at BIGINT NOT NULL
 );
 CREATE INDEX idx_users_username ON users(username);

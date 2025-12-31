@@ -30,7 +30,7 @@ func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestH
 
 		// Debug logging for CORS troubleshooting
 		isAllowed := cm.isOriginAllowed(origin)
-		log.Debug().
+		log.Info().
 			Str("origin", origin).
 			Strs("allowedOrigins", cm.allowedOrigins).
 			Bool("isAllowed", isAllowed).
