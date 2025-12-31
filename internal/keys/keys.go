@@ -4,8 +4,8 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"fmt"
-	"io"
 
+	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -25,10 +25,28 @@ func DeriveRSAKeyPair(masterPassword, externalURL string) (*rsa.PrivateKey, *rsa
 	seed := masterPassword + externalURL
 	hash := sha256.Sum256([]byte(seed))
 
-	// Use HKDF to create a deterministic random source
-	reader := hkdf.New(sha256.New, hash[:], []byte("prappser-rsa-salt"), []byte("rsa-keypair"))
+	// Use HKDF to derive a 32-byte key and 12-byte nonce for ChaCha20
+	hkdfReader := hkdf.New(sha256.New, hash[:], []byte("prappser-rsa-salt"), []byte("rsa-keypair"))
 
-	privateKey, err := rsa.GenerateKey(&deterministicReader{reader}, KeySize)
+	key := make([]byte, 32)
+	nonce := make([]byte, 12)
+	if _, err := hkdfReader.Read(key); err != nil {
+		return nil, nil, fmt.Errorf("failed to derive key: %w", err)
+	}
+	if _, err := hkdfReader.Read(nonce); err != nil {
+		return nil, nil, fmt.Errorf("failed to derive nonce: %w", err)
+	}
+
+	// Use ChaCha20 as a CSPRNG - it can produce unlimited random bytes
+	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create ChaCha20 cipher: %w", err)
+	}
+
+	// Create a deterministic reader using ChaCha20 keystream
+	reader := &chachaReader{cipher: cipher}
+
+	privateKey, err := rsa.GenerateKey(reader, KeySize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
 	}
@@ -36,11 +54,16 @@ func DeriveRSAKeyPair(masterPassword, externalURL string) (*rsa.PrivateKey, *rsa
 	return privateKey, &privateKey.PublicKey, nil
 }
 
-// deterministicReader wraps an io.Reader to satisfy rand.Reader interface
-type deterministicReader struct {
-	reader io.Reader
+// chachaReader generates deterministic random bytes using ChaCha20 keystream
+type chachaReader struct {
+	cipher *chacha20.Cipher
 }
 
-func (d *deterministicReader) Read(p []byte) (n int, err error) {
-	return d.reader.Read(p)
+func (c *chachaReader) Read(p []byte) (n int, err error) {
+	// XOR zeros with keystream to get pure keystream output
+	for i := range p {
+		p[i] = 0
+	}
+	c.cipher.XORKeyStream(p, p)
+	return len(p), nil
 }
