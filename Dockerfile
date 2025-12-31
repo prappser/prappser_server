@@ -1,9 +1,9 @@
-# Build stage - compile Go binary (no CGO needed for PostgreSQL)
-FROM golang:1.23-alpine AS builder
+# Build stage - use pre-built deps image for faster builds
+FROM ghcr.io/prappser/prappser_server-deps:latest AS builder
 
 WORKDIR /build
 
-# Download dependencies first (cached layer)
+# Copy dependency files (for verification/update if needed)
 COPY go.mod go.sum ./
 RUN go mod download
 

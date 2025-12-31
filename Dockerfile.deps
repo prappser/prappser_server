@@ -1,0 +1,13 @@
+# Dependencies image - pre-downloaded Go modules
+FROM golang:1.23-alpine
+
+WORKDIR /deps
+
+# Copy dependency files
+COPY go.mod go.sum ./
+
+# Download all dependencies (cached in this image)
+RUN go mod download
+
+# Verify modules
+RUN go mod verify

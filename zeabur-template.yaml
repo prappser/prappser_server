@@ -68,8 +68,9 @@ spec:
       domainKey: SERVER_DOMAIN
       spec:
         source:
-          repoURL: https://github.com/prappser/prappser-server
-          branchName: main
+          source: GITHUB
+          repo: 925100212
+          branch: main
         ports:
           - id: http
             port: 4545
