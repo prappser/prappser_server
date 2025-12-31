@@ -82,7 +82,8 @@ spec:
             default: ${MASTER_PASSWORD}
           PORT:
             default: "4545"
-          EXTERNAL_URL: ${ZEABUR_WEB_URL}
+          EXTERNAL_URL:
+            default: https://${SERVER_DOMAIN}.zeabur.app
           ALLOWED_ORIGINS:
             default: "https://prappser.app"
           LOG_LEVEL:
