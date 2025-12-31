@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"regexp"
+
+	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 )
 
@@ -26,8 +28,16 @@ func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestH
 	return func(ctx *fasthttp.RequestCtx) {
 		origin := string(ctx.Request.Header.Peek("Origin"))
 
+		// Debug logging for CORS troubleshooting
+		isAllowed := cm.isOriginAllowed(origin)
+		log.Debug().
+			Str("origin", origin).
+			Strs("allowedOrigins", cm.allowedOrigins).
+			Bool("isAllowed", isAllowed).
+			Msg("CORS check")
+
 		// Set CORS headers based on origin
-		if cm.isOriginAllowed(origin) {
+		if isAllowed {
 			ctx.Response.Header.Set("Access-Control-Allow-Origin", origin)
 			// When using credentials, we must set the specific origin (not *)
 			ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
