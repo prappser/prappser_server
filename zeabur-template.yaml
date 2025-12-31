@@ -83,7 +83,7 @@ spec:
           PORT:
             default: "4545"
           EXTERNAL_URL:
-            default: ${ZEABUR_WEB_URL}
+            default: https://${SERVER_DOMAIN}
           ALLOWED_ORIGINS:
             default: "https://prappser.app"
           LOG_LEVEL:
@@ -91,9 +91,9 @@ spec:
         instructions:
           - type: DOMAIN
             title: API Endpoint
-            content: ${ZEABUR_WEB_URL}/api
+            content: https://${SERVER_DOMAIN}/api
             category: Endpoints
           - type: DOMAIN
             title: WebSocket
-            content: wss://${ZEABUR_WEB_DOMAIN}/ws
+            content: wss://${SERVER_DOMAIN}/ws
             category: Endpoints
