@@ -53,9 +53,9 @@ type UserEndpoints struct {
 
 type Config struct {
 	MasterPasswordMD5Hash   string
-	RegistrationTokenTTLSec int32 `mapstructure:"registration_token_ttl_sec"`
-	JWTExpirationHours      int   `mapstructure:"jwt_expiration_hours"`
-	ChallengeTTLSec         int   `mapstructure:"challenge_ttl_sec"`
+	RegistrationTokenTTLSec int32
+	JWTExpirationHours      int
+	ChallengeTTLSec         int
 }
 
 // JWS claims for user authentication

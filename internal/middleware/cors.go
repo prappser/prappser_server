@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
@@ -14,7 +15,8 @@ type CORSMiddleware struct {
 
 func NewCORSMiddleware(allowedOrigins []string) *CORSMiddleware {
 	if len(allowedOrigins) == 0 {
-		allowedOrigins = []string{"*"}
+		// Default: allow prappser.app and localhost for development
+		allowedOrigins = []string{"https://prappser.app", "http://localhost:*", "https://localhost:*"}
 	}
 	// Compile regex for localhost with any port
 	localhostRegex := regexp.MustCompile(`^https?://localhost:\d+$`)
@@ -26,24 +28,33 @@ func NewCORSMiddleware(allowedOrigins []string) *CORSMiddleware {
 
 func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
+		// Try multiple ways to get the Origin header (fasthttp normalizes to canonical form)
 		origin := string(ctx.Request.Header.Peek("Origin"))
+		if origin == "" {
+			// Fallback: check Referer and extract origin
+			referer := string(ctx.Request.Header.Peek("Referer"))
+			if referer != "" {
+				origin = extractOriginFromURL(referer)
+			}
+		}
+		origin = strings.TrimSpace(origin)
 
-		// Debug logging for CORS troubleshooting
 		isAllowed := cm.isOriginAllowed(origin)
+
 		log.Info().
 			Str("origin", origin).
-			Strs("allowedOrigins", cm.allowedOrigins).
+			Str("referer", string(ctx.Request.Header.Peek("Referer"))).
+			Str("method", string(ctx.Method())).
+			Str("path", string(ctx.Path())).
 			Bool("isAllowed", isAllowed).
 			Msg("CORS check")
 
 		// Set CORS headers based on origin
-		if isAllowed {
+		if isAllowed && origin != "" {
 			ctx.Response.Header.Set("Access-Control-Allow-Origin", origin)
-			// When using credentials, we must set the specific origin (not *)
 			ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
 		} else if len(cm.allowedOrigins) == 1 && cm.allowedOrigins[0] == "*" {
 			ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-			// Cannot use credentials with wildcard origin
 		}
 
 		ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -60,8 +71,25 @@ func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestH
 	}
 }
 
+func extractOriginFromURL(url string) string {
+	// Extract origin (scheme + host) from URL like "https://prappser.app/some/path"
+	if idx := strings.Index(url, "://"); idx != -1 {
+		rest := url[idx+3:]
+		if slashIdx := strings.Index(rest, "/"); slashIdx != -1 {
+			return url[:idx+3+slashIdx]
+		}
+		return url
+	}
+	return ""
+}
+
 func (cm *CORSMiddleware) isOriginAllowed(origin string) bool {
-	// Check exact match first
+	// Wildcard allows all origins
+	if len(cm.allowedOrigins) == 1 && cm.allowedOrigins[0] == "*" {
+		return true
+	}
+
+	// Check exact match or localhost pattern
 	for _, allowed := range cm.allowedOrigins {
 		if allowed == origin {
 			return true
@@ -72,10 +100,6 @@ func (cm *CORSMiddleware) isOriginAllowed(origin string) bool {
 				return true
 			}
 		}
-	}
-	// Also allow any localhost origin if no specific origins are configured (dev mode)
-	if len(cm.allowedOrigins) == 1 && cm.allowedOrigins[0] == "*" {
-		return cm.localhostRegex.MatchString(origin)
 	}
 	return false
 }
