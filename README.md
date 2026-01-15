@@ -34,8 +34,13 @@ go run .
 ## Development
 
 ```bash
-# Run tests
+# Run unit tests
 go test ./...
+
+# Run integration tests (requires Docker)
+docker compose up -d
+go test -tags=integration ./...
+docker compose down
 
 # Run with live reload (using air)
 air

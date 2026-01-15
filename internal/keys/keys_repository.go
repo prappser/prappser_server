@@ -41,7 +41,7 @@ func (r *KeyRepository) GetServerKey(ctx context.Context) (*EncryptedKey, error)
 func (r *KeyRepository) SaveServerKey(ctx context.Context, enc *EncryptedKey) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO server_keys (id, public_key, encrypted_private_key, salt, nonce, created_at, algorithm)
-		 VALUES ('main', ?, ?, ?, ?, ?, 'ed25519')`,
+		 VALUES ('main', $1, $2, $3, $4, $5, 'ed25519')`,
 		[]byte(enc.PublicKey), enc.EncryptedPrivateKey, enc.Salt, enc.Nonce, time.Now().Unix(),
 	)
 	return err
