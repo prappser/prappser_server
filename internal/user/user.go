@@ -1,20 +1,15 @@
 package user
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
-
 	"github.com/goccy/go-json"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/lestrrat-go/jwx/v3/jwa"
-	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/prappser/prappser_server/internal/user/owner"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
@@ -44,8 +39,8 @@ type UserRepository interface {
 type UserEndpoints struct {
 	userRepository UserRepository
 	config         Config
-	privateKey     *rsa.PrivateKey
-	publicKey      *rsa.PublicKey
+	privateKey     ed25519.PrivateKey
+	publicKey      ed25519.PublicKey
 	userService    *UserService
 	// Add challenge storage for verification
 	challenges map[string]challengeInfo
@@ -90,7 +85,7 @@ type challengeInfo struct {
 
 var timeNowFunc = time.Now
 
-func NewEndpoints(userRepository UserRepository, config Config, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, userService *UserService) *UserEndpoints {
+func NewEndpoints(userRepository UserRepository, config Config, privateKey ed25519.PrivateKey, publicKey ed25519.PublicKey, userService *UserService) *UserEndpoints {
 	return &UserEndpoints{
 		userRepository: userRepository,
 		config:         config,
@@ -223,12 +218,8 @@ func (ue UserEndpoints) GetChallenge(ctx *fasthttp.RequestCtx) {
 
 	log.Debug().Str("publicKey", publicKeyStr[:min(50, len(publicKeyStr))]+"...").Time("expiresAt", expiresAt).Msg("[CHALLENGE] Challenge generated and stored")
 
-	// Convert server's public key to PEM format
-	publicKeyPEM := &pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(ue.publicKey),
-	}
-	serverPublicKeyString := string(pem.EncodeToMemory(publicKeyPEM))
+	// Convert server's Ed25519 public key to base64
+	serverPublicKeyString := base64.StdEncoding.EncodeToString(ue.publicKey)
 
 	response := ChallengeResponse{
 		Challenge:       challenge,
@@ -318,33 +309,44 @@ func extractJWSFromAuthorizationHeader(authHeader string) (string, error) {
 }
 
 
-func (ue UserEndpoints) verifyUserAuthJWS(signedJWS string, ttlSec int) (*userAuthJWSClaims, error) {
-	log.Debug().Msg("[VERIFY] Parsing JWS")
-	// Parse the JWS without verification to extract the claims
-	msg, err := jws.Parse([]byte(signedJWS))
+func (ue UserEndpoints) verifyUserAuthJWS(signedJWT string, ttlSec int) (*userAuthJWSClaims, error) {
+	log.Debug().Msg("[VERIFY] Parsing JWT")
+
+	// Parse JWT without verification first to get claims
+	token, _, err := jwt.NewParser().ParseUnverified(signedJWT, jwt.MapClaims{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWS: %w", err)
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
-	claimsBytes := msg.Payload()
+	mapClaims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid JWT claims format")
+	}
+
 	var claims userAuthJWSClaims
-	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JWS claims: %w", err)
+	if pk, ok := mapClaims["publicKey"].(string); ok {
+		claims.PublicKey = pk
+	}
+	if ch, ok := mapClaims["challenge"].(string); ok {
+		claims.Challenge = ch
+	}
+	if iat, ok := mapClaims["iat"].(float64); ok {
+		claims.IssuedAt = int64(iat)
 	}
 
 	publicKeyPrefix := claims.PublicKey[:min(50, len(claims.PublicKey))] + "..."
-	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWS claims extracted")
+	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWT claims extracted")
 
-	// Check if the JWS is expired
+	// Check if the JWT is expired
 	var timeNow = timeNowFunc()
 	var issuedAtTime = time.Unix(claims.IssuedAt, 0)
 	if issuedAtTime.Add(time.Duration(ttlSec) * time.Second).Before(timeNow) {
-		log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWS has expired")
-		return nil, fmt.Errorf("JWS has expired")
+		log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWT has expired")
+		return nil, fmt.Errorf("JWT has expired")
 	}
 
 	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Looking up user in database")
-	// 1. Get the user by public key (unique identifier) - fixed security issue
+	// 1. Get the user by public key (unique identifier)
 	user, err := ue.userRepository.GetUserByPublicKey(claims.PublicKey)
 	if err != nil {
 		log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] User not found in database")
@@ -359,34 +361,41 @@ func (ue UserEndpoints) verifyUserAuthJWS(signedJWS string, ttlSec int) (*userAu
 
 	log.Debug().Str("username", user.Username).Str("publicKey", publicKeyPrefix).Int("publicKeyLen", len(user.PublicKey)).Msg("[VERIFY] User found, validating public key")
 
-	// 3. Parse the user's public key
-	block, _ := pem.Decode([]byte(user.PublicKey))
-	if block == nil {
-		log.Error().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Failed to decode public key PEM")
-		return nil, fmt.Errorf("failed to decode public key PEM")
-	}
-
-	publicKey, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	// 3. Parse the user's Ed25519 public key from base64
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(user.PublicKey)
 	if err != nil {
-		log.Error().Err(err).Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Failed to parse public key")
-		return nil, fmt.Errorf("failed to parse public key: %w", err)
+		log.Error().Err(err).Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Failed to decode public key base64")
+		return nil, fmt.Errorf("failed to decode public key: %w", err)
 	}
 
-	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Public key parsed, verifying JWS signature")
+	if len(publicKeyBytes) != ed25519.PublicKeySize {
+		log.Error().Int("size", len(publicKeyBytes)).Msg("[VERIFY] Invalid Ed25519 public key size")
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(publicKeyBytes))
+	}
 
-	// 4. Verify the JWS signature using their public key
-	verified, err := jws.Verify([]byte(signedJWS), jws.WithKey(jwa.RS256(), publicKey))
+	ed25519PublicKey := ed25519.PublicKey(publicKeyBytes)
+
+	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] Public key parsed, verifying JWT signature")
+
+	// 4. Verify the JWT signature using their Ed25519 public key
+	verifiedToken, err := jwt.Parse(signedJWT, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return ed25519PublicKey, nil
+	})
+
 	if err != nil {
-		log.Error().Err(err).Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWS signature verification failed")
-		return nil, fmt.Errorf("failed to verify JWS signature: %w", err)
+		log.Error().Err(err).Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWT signature verification failed")
+		return nil, fmt.Errorf("failed to verify JWT signature: %w", err)
 	}
 
-	if len(verified) == 0 {
-		log.Error().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWS signature verification returned empty result")
-		return nil, fmt.Errorf("JWS signature verification failed")
+	if !verifiedToken.Valid {
+		log.Error().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWT is not valid")
+		return nil, fmt.Errorf("JWT signature verification failed")
 	}
 
-	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWS signature verified, checking challenge")
+	log.Debug().Str("publicKey", publicKeyPrefix).Msg("[VERIFY] JWT signature verified, checking challenge")
 
 	// 5. Verify that the challenge matches what was issued (keyed by publicKey)
 	storedChallenge, exists := ue.challenges[claims.PublicKey]
@@ -421,15 +430,11 @@ func generateChallenge() (string, error) {
 }
 
 
-// GetServerPublicKey returns the server's public key for JWT verification
+// GetServerPublicKey returns the server's Ed25519 public key for JWT verification
 func (ue UserEndpoints) GetServerPublicKey(ctx *fasthttp.RequestCtx) {
-	publicKeyPEM := &pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(ue.publicKey),
-	}
-
 	response := map[string]string{
-		"publicKey": string(pem.EncodeToMemory(publicKeyPEM)),
+		"publicKey": base64.StdEncoding.EncodeToString(ue.publicKey),
+		"algorithm": "ed25519",
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusOK)

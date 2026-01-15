@@ -28,14 +28,13 @@ func NewCORSMiddleware(allowedOrigins []string) *CORSMiddleware {
 
 func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
-		// Try multiple ways to get the Origin header (fasthttp normalizes to canonical form)
 		origin := string(ctx.Request.Header.Peek("Origin"))
-		if origin == "" {
-			// Fallback: check Referer and extract origin
-			referer := string(ctx.Request.Header.Peek("Referer"))
-			if referer != "" {
-				origin = extractOriginFromURL(referer)
-			}
+		referer := string(ctx.Request.Header.Peek("Referer"))
+		auth := string(ctx.Request.Header.Peek("Authorization"))
+
+		// Fallback: extract origin from Referer if Origin is empty
+		if origin == "" && referer != "" {
+			origin = extractOriginFromURL(referer)
 		}
 		origin = strings.TrimSpace(origin)
 
@@ -43,7 +42,8 @@ func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestH
 
 		log.Info().
 			Str("origin", origin).
-			Str("referer", string(ctx.Request.Header.Peek("Referer"))).
+			Str("referer", referer).
+			Bool("hasAuth", auth != "").
 			Str("method", string(ctx.Method())).
 			Str("path", string(ctx.Path())).
 			Bool("isAllowed", isAllowed).

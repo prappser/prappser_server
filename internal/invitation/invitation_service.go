@@ -2,7 +2,7 @@ package invitation
 
 import (
 	"context"
-	"crypto/rsa"
+	"crypto/ed25519"
 	"database/sql"
 	"fmt"
 	"time"
@@ -26,8 +26,8 @@ type EventService interface {
 
 type InvitationService struct {
 	repo           InvitationRepository
-	privateKey     *rsa.PrivateKey
-	publicKey      *rsa.PublicKey
+	privateKey     ed25519.PrivateKey
+	publicKey      ed25519.PublicKey
 	appRepo        application.ApplicationRepository
 	db             *sql.DB
 	externalURL    string
@@ -35,7 +35,7 @@ type InvitationService struct {
 	eventService   EventService
 }
 
-func NewInvitationService(repo InvitationRepository, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, appRepo application.ApplicationRepository, db *sql.DB, externalURL string, userRepository user.UserRepository, eventService EventService) *InvitationService {
+func NewInvitationService(repo InvitationRepository, privateKey ed25519.PrivateKey, publicKey ed25519.PublicKey, appRepo application.ApplicationRepository, db *sql.DB, externalURL string, userRepository user.UserRepository, eventService EventService) *InvitationService {
 	return &InvitationService{
 		repo:           repo,
 		privateKey:     privateKey,
@@ -146,7 +146,7 @@ func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL strin
 		mapClaims["exp"] = *expiresAt
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, mapClaims)
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, mapClaims)
 
 	// Sign token
 	tokenString, err := token.SignedString(s.privateKey)
@@ -161,8 +161,8 @@ func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL strin
 func (s *InvitationService) ValidateToken(tokenString string) (*InviteTokenClaims, error) {
 	// Parse token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Verify signing method
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		// Verify signing method - accept EdDSA
+		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return s.publicKey, nil

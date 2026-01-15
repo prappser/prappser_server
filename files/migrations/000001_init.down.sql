@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS server_keys;
 DROP TABLE IF EXISTS setup_config;
 DROP TABLE IF EXISTS events;
 DROP TABLE IF EXISTS invitation_uses;

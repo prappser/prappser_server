@@ -1,7 +1,7 @@
 package user
 
 import (
-	"crypto/rsa"
+	"crypto/ed25519"
 	"fmt"
 	"strings"
 	"time"
@@ -13,11 +13,11 @@ import (
 type UserService struct {
 	userRepository UserRepository
 	config         Config
-	privateKey     *rsa.PrivateKey
-	publicKey      *rsa.PublicKey
+	privateKey     ed25519.PrivateKey
+	publicKey      ed25519.PublicKey
 }
 
-func NewUserService(userRepository UserRepository, config Config, privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey) *UserService {
+func NewUserService(userRepository UserRepository, config Config, privateKey ed25519.PrivateKey, publicKey ed25519.PublicKey) *UserService {
 	return &UserService{
 		userRepository: userRepository,
 		config:         config,
@@ -54,7 +54,7 @@ func (us *UserService) GenerateJWT(user *User) (string, int64, error) {
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 	tokenString, err := token.SignedString(us.privateKey)
 	if err != nil {
 		return "", 0, err

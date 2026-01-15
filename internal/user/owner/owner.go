@@ -1,17 +1,17 @@
 package owner
 
 import (
-	"crypto/x509"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/hex"
-	"encoding/pem"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwe"
-	"github.com/lestrrat-go/jwx/v3/jws"
 )
 
 // JWE/JWS claims for owner registration
@@ -53,41 +53,63 @@ func DecryptJWE(encryptedJWE string, masterPasswordMD5Hash string) (*RegisterJWE
 	return &registerJWEClaims, nil
 }
 
-// VerifyJWS verifies the JWS using the public key from its claims
-func VerifyJWS(signedJWS string, registrationTokenTTLSec int32) (*RegisterJWSClaims, error) {
-	msg, err := jws.Parse([]byte(signedJWS))
+// VerifyJWS verifies the JWT using the Ed25519 public key from its claims
+func VerifyJWS(signedJWT string, registrationTokenTTLSec int32) (*RegisterJWSClaims, error) {
+	// Parse JWT without verification first to get claims
+	token, _, err := jwt.NewParser().ParseUnverified(signedJWT, jwt.MapClaims{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWS: %w", err)
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
-	claimsBytes := msg.Payload()
+	mapClaims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid JWT claims format")
+	}
+
 	var registerJWSClaims RegisterJWSClaims
-	if err := json.Unmarshal(claimsBytes, &registerJWSClaims); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JWS claims: %w", err)
+	if pk, ok := mapClaims["publicKey"].(string); ok {
+		registerJWSClaims.PublicKey = pk
+	}
+	if un, ok := mapClaims["username"].(string); ok {
+		registerJWSClaims.Username = un
+	}
+	if iat, ok := mapClaims["iat"].(float64); ok {
+		registerJWSClaims.IssuedAt = int64(iat)
 	}
 
-	// Check if the JWS is expired
+	// Check if the JWT is expired
 	var timeNow = timeNowFunc()
 	var issuedAtTime = time.Unix(registerJWSClaims.IssuedAt, 0)
 	if issuedAtTime.Add(time.Duration(registrationTokenTTLSec) * time.Second).Before(timeNow) {
-		return nil, fmt.Errorf("JWS has expired")
+		return nil, fmt.Errorf("JWT has expired")
 	}
 
-	// Decode the public key
-	block, _ := pem.Decode([]byte(registerJWSClaims.PublicKey))
-	if block == nil {
-		return nil, fmt.Errorf("invalid public key format")
-	}
-
-	publicKey, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	// Decode the Ed25519 public key from base64
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(registerJWSClaims.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse public key: %v", err)
+		return nil, fmt.Errorf("failed to decode public key: %w", err)
 	}
 
-	// Verify the JWS signature
-	_, err = jws.Verify([]byte(signedJWS), jws.WithKey(jwa.RS256(), publicKey))
+	if len(publicKeyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(publicKeyBytes))
+	}
+
+	ed25519PublicKey := ed25519.PublicKey(publicKeyBytes)
+
+	// Verify the JWT signature using Ed25519 public key
+	verifiedToken, err := jwt.Parse(signedJWT, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return ed25519PublicKey, nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to verify JWS: %w", err)
+		return nil, fmt.Errorf("failed to verify JWT: %w", err)
+	}
+
+	if !verifiedToken.Valid {
+		return nil, fmt.Errorf("JWT signature verification failed")
 	}
 
 	return &registerJWSClaims, nil

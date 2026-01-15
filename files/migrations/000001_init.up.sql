@@ -100,3 +100,14 @@ CREATE TABLE setup_config (
     id TEXT PRIMARY KEY,
     railway_token TEXT
 );
+
+-- Server keys table (Ed25519 keypair encrypted with master password)
+CREATE TABLE server_keys (
+    id TEXT PRIMARY KEY DEFAULT 'main',
+    public_key BLOB NOT NULL,
+    encrypted_private_key BLOB NOT NULL,
+    salt BLOB NOT NULL,
+    nonce BLOB NOT NULL,
+    created_at BIGINT NOT NULL,
+    algorithm TEXT NOT NULL DEFAULT 'ed25519'
+);

@@ -17,12 +17,13 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/pem"
+	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
 
+	_ "github.com/lib/pq"
 	"github.com/prappser/prappser_server/internal"
 	"github.com/prappser/prappser_server/internal/application"
 	"github.com/prappser/prappser_server/internal/event"
@@ -64,26 +65,29 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	// Load config first (needed for key derivation)
+	// Load config first
 	config, err := internal.LoadConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error loading config")
 		return
 	}
 
-	// Derive RSA keys deterministically from master password + external URL
-	privateKey, publicKey, err := keys.DeriveRSAKeyPair(config.MasterPassword, config.ExternalURL)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Error deriving RSA keys")
-		return
-	}
-	log.Info().Msg("RSA keys derived successfully")
-
 	db, err := internal.NewDB()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error initializing database")
 		return
 	}
+
+	// Initialize key service (generates or loads Ed25519 keys from DB)
+	keyRepo := keys.NewKeyRepository(db)
+	keyService := keys.NewKeyService(keyRepo, config.MasterPassword)
+	if err := keyService.Initialize(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize server keys")
+		return
+	}
+
+	privateKey := keyService.PrivateKey()
+	publicKey := keyService.PublicKey()
 
 	// Initialize user components
 	userRepository := user.NewUserRepository(db)
@@ -108,12 +112,8 @@ func main() {
 	// Initialize application service (events are now client-produced via POST /events)
 	appService := application.NewApplicationService(appRepository)
 
-	// Convert server public key to PEM format for application responses
-	publicKeyPEM := &pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(publicKey),
-	}
-	serverPublicKeyString := string(pem.EncodeToMemory(publicKeyPEM))
+	// Convert server Ed25519 public key to base64 for application responses
+	serverPublicKeyString := base64.StdEncoding.EncodeToString(publicKey)
 
 	appEndpoints := application.NewApplicationEndpoints(appService, serverPublicKeyString)
 
