@@ -75,6 +75,9 @@ spec:
           - id: http
             port: 4545
             type: HTTP
+        volumes:
+          - id: storage
+            dir: /app/storage
         env:
           DATABASE_URL:
             default: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/prappser?sslmode=disable
@@ -90,6 +93,14 @@ spec:
             default: "https://prappser.app"
           LOG_LEVEL:
             default: info
+          STORAGE_TYPE:
+            default: local
+          STORAGE_PATH:
+            default: /app/storage
+          STORAGE_MAX_FILE_SIZE_MB:
+            default: "50"
+          STORAGE_CHUNK_SIZE_MB:
+            default: "5"
         instructions:
           - type: DOMAIN
             title: API Endpoint

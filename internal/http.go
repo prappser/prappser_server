@@ -7,6 +7,7 @@ import (
 	"github.com/prappser/prappser_server/internal/event"
 	"github.com/prappser/prappser_server/internal/health"
 	"github.com/prappser/prappser_server/internal/invitation"
+	"github.com/prappser/prappser_server/internal/storage"
 	"github.com/prappser/prappser_server/internal/middleware"
 	"github.com/prappser/prappser_server/internal/setup"
 	"github.com/prappser/prappser_server/internal/status"
@@ -15,7 +16,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints, setupEndpoints *setup.SetupEndpoints, wsHandler *websocket.Handler) fasthttp.RequestHandler {
+func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, statusEndpoints *status.StatusEndpoints, healthEndpoints *health.HealthEndpoints, userService *user.UserService, appEndpoints *application.ApplicationEndpoints, invitationEndpoints *invitation.InvitationEndpoints, eventEndpoints *event.EventEndpoints, setupEndpoints *setup.SetupEndpoints, storageEndpoints *storage.Endpoints, wsHandler *websocket.Handler) fasthttp.RequestHandler {
 	authMiddleware := middleware.NewAuthMiddleware(userService)
 	corsMiddleware := middleware.NewCORSMiddleware(config.AllowedOrigins)
 
@@ -23,7 +24,6 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 		path := string(ctx.Path())
 
 		switch {
-		// Railway setup endpoint - store token for server self-management
 		case path == "/setup/railway":
 			method := string(ctx.Method())
 			if method == "POST" {
@@ -42,14 +42,12 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 			healthEndpoints.Health(ctx)
 		case path == "/status":
 			authMiddleware.RequireAuth(statusEndpoints.Status)(ctx)
-		
-		// Application endpoints
+
 		case path == "/applications/register":
 			authMiddleware.RequireRole(user.RoleOwner, appEndpoints.RegisterApplication)(ctx)
 		case path == "/applications":
 			authMiddleware.RequireRole(user.RoleOwner, appEndpoints.ListApplications)(ctx)
 		case strings.HasPrefix(path, "/applications/") && strings.HasSuffix(path, "/state"):
-			// Extract application ID from path
 			parts := strings.Split(path, "/")
 			if len(parts) == 4 && parts[3] == "state" {
 				ctx.SetUserValue("appID", parts[2])
@@ -58,30 +56,24 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case strings.HasPrefix(path, "/applications/") && strings.Contains(path, "/invites"):
-			// Invitation endpoints under /applications/{appID}/invites
 			parts := strings.Split(path, "/")
 			if len(parts) >= 4 && parts[3] == "invites" {
 				ctx.SetUserValue("appID", parts[2])
 
 				if len(parts) == 4 {
-					// /applications/{appID}/invites
 					method := string(ctx.Method())
 					switch method {
 					case "POST":
-						// Create invite
 						authMiddleware.RequireRole(user.RoleOwner, invitationEndpoints.CreateInvite)(ctx)
 					case "GET":
-						// List invites
 						authMiddleware.RequireRole(user.RoleOwner, invitationEndpoints.ListInvites)(ctx)
 					default:
 						ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 					}
 				} else if len(parts) == 5 {
-					// /applications/{appID}/invites/{inviteID}
 					ctx.SetUserValue("inviteID", parts[4])
 					method := string(ctx.Method())
 					if method == "DELETE" {
-						// Revoke invite
 						authMiddleware.RequireRole(user.RoleOwner, invitationEndpoints.RevokeInvite)(ctx)
 					} else {
 						ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
@@ -93,7 +85,6 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case strings.HasPrefix(path, "/applications/") && strings.HasSuffix(path, "/members/me"):
-			// Leave application endpoint: DELETE /applications/{appID}/members/me
 			parts := strings.Split(path, "/")
 			if len(parts) == 5 && parts[3] == "members" && parts[4] == "me" {
 				ctx.SetUserValue("appID", parts[2])
@@ -107,12 +98,9 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case strings.HasPrefix(path, "/applications/"):
-			// Extract application ID from path
 			parts := strings.Split(path, "/")
 			if len(parts) == 3 {
 				ctx.SetUserValue("appID", parts[2])
-
-				// Route based on HTTP method
 				method := string(ctx.Method())
 				switch method {
 				case "GET":
@@ -126,9 +114,7 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 
-		// Invitation endpoints
 		case strings.HasPrefix(path, "/invites/") && strings.HasSuffix(path, "/info"):
-			// GET /invites/{token}/info (public endpoint)
 			parts := strings.Split(path, "/")
 			if len(parts) == 4 && parts[3] == "info" {
 				ctx.SetUserValue("token", parts[2])
@@ -137,13 +123,12 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case strings.HasPrefix(path, "/invites/") && strings.HasSuffix(path, "/join"):
-			// POST /invites/{token}/join (PUBLIC endpoint - no auth required)
 			parts := strings.Split(path, "/")
 			if len(parts) == 4 && parts[3] == "join" {
 				ctx.SetUserValue("token", parts[2])
 				method := string(ctx.Method())
 				if method == "POST" {
-					invitationEndpoints.JoinApplication(ctx) // No auth - endpoint creates user if needed
+					invitationEndpoints.JoinApplication(ctx)
 				} else {
 					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 				}
@@ -151,7 +136,6 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Not Found", fasthttp.StatusNotFound)
 			}
 		case path == "/invites/check":
-			// POST /invites/check (PUBLIC endpoint - no auth required)
 			method := string(ctx.Method())
 			if method == "POST" {
 				invitationEndpoints.CheckInvitation(ctx)
@@ -159,20 +143,82 @@ func NewRequestHandler(config *Config, userEndpoints *user.UserEndpoints, status
 				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 			}
 
-		// Event endpoints
 		case path == "/events":
 			method := string(ctx.Method())
 			if method == "GET" {
-				// GET /events?since={eventId}&limit={limit}
 				authMiddleware.RequireAuth(eventEndpoints.GetEvents)(ctx)
 			} else if method == "POST" {
-				// POST /events - Submit event for validation and processing
 				authMiddleware.RequireAuth(eventEndpoints.SubmitEvent)(ctx)
 			} else {
 				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
 			}
 
-		// WebSocket endpoint
+		case path == "/storage/upload":
+			method := string(ctx.Method())
+			if method == "POST" {
+				authMiddleware.RequireAuth(storageEndpoints.Upload)(ctx)
+			} else {
+				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+			}
+		case path == "/storage/chunks/init":
+			method := string(ctx.Method())
+			if method == "POST" {
+				authMiddleware.RequireAuth(storageEndpoints.InitChunkedUpload)(ctx)
+			} else {
+				ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+			}
+		case strings.HasPrefix(path, "/storage/chunks/") && strings.Contains(path, "/"):
+			parts := strings.Split(path, "/")
+			if len(parts) == 5 {
+				ctx.SetUserValue("storageID", parts[3])
+				ctx.SetUserValue("chunkIndex", parts[4])
+				method := string(ctx.Method())
+				if method == "POST" {
+					authMiddleware.RequireAuth(storageEndpoints.UploadChunk)(ctx)
+				} else {
+					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+				}
+			} else {
+				ctx.Error("Not Found", fasthttp.StatusNotFound)
+			}
+		case strings.HasPrefix(path, "/storage/") && strings.HasSuffix(path, "/complete"):
+			parts := strings.Split(path, "/")
+			if len(parts) == 4 && parts[3] == "complete" {
+				ctx.SetUserValue("storageID", parts[2])
+				method := string(ctx.Method())
+				if method == "POST" {
+					authMiddleware.RequireAuth(storageEndpoints.CompleteChunkedUpload)(ctx)
+				} else {
+					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+				}
+			} else {
+				ctx.Error("Not Found", fasthttp.StatusNotFound)
+			}
+		case strings.HasPrefix(path, "/storage/") && strings.HasSuffix(path, "/thumb"):
+			parts := strings.Split(path, "/")
+			if len(parts) == 4 && parts[3] == "thumb" {
+				ctx.SetUserValue("storageID", parts[2])
+				authMiddleware.RequireAuth(storageEndpoints.GetThumbnail)(ctx)
+			} else {
+				ctx.Error("Not Found", fasthttp.StatusNotFound)
+			}
+		case strings.HasPrefix(path, "/storage/"):
+			parts := strings.Split(path, "/")
+			if len(parts) == 3 {
+				ctx.SetUserValue("storageID", parts[2])
+				method := string(ctx.Method())
+				switch method {
+				case "GET":
+					authMiddleware.RequireAuth(storageEndpoints.GetFile)(ctx)
+				case "DELETE":
+					authMiddleware.RequireAuth(storageEndpoints.DeleteFile)(ctx)
+				default:
+					ctx.Error("Method Not Allowed", fasthttp.StatusMethodNotAllowed)
+				}
+			} else {
+				ctx.Error("Not Found", fasthttp.StatusNotFound)
+			}
+
 		case path == "/ws":
 			wsHandler.HandleFastHTTP(ctx)
 

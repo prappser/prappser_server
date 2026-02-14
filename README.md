@@ -62,3 +62,39 @@ docker run -e DATABASE_URL="..." -e MASTER_PASSWORD="..." -p 4545:4545 prappser-
 ### Zeabur
 
 Set `HOSTING_PROVIDER=zeabur` and `EXTERNAL_URL` to your subdomain (e.g., `myserver` becomes `https://myserver.zeabur.app`).
+
+## File Storage
+
+The server provides file upload/download capabilities for application assets (images, files, etc.).
+
+### Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `STORAGE_TYPE` | No | `local` | Storage backend: `local` or `s3` |
+| `STORAGE_PATH` | No | `./storage` | Local storage path (when `STORAGE_TYPE=local`) |
+| `STORAGE_MAX_FILE_SIZE_MB` | No | `50` | Maximum file size in MB |
+| `STORAGE_CHUNK_SIZE_MB` | No | `5` | Chunk size for chunked uploads |
+
+#### S3 Storage (when `STORAGE_TYPE=s3`)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `STORAGE_S3_ENDPOINT` | No | S3 endpoint (for S3-compatible services) |
+| `STORAGE_S3_BUCKET` | Yes | S3 bucket name |
+| `STORAGE_S3_ACCESS_KEY` | Yes | S3 access key |
+| `STORAGE_S3_SECRET_KEY` | Yes | S3 secret key |
+| `STORAGE_S3_REGION` | No | S3 region |
+| `STORAGE_S3_USE_SSL` | No | Use SSL for S3 connections |
+
+### API Endpoints
+
+All storage endpoints require JWT authentication via `Authorization: Bearer <token>` header.
+
+- `POST /storage/upload` - Single file upload
+- `POST /storage/chunks/init` - Initialize chunked upload
+- `POST /storage/chunks/{storageId}/{chunkIndex}` - Upload chunk
+- `POST /storage/{storageId}/complete` - Complete chunked upload
+- `GET /storage/{storageId}` - Download file
+- `GET /storage/{storageId}/thumb` - Get thumbnail (for images)
+- `DELETE /storage/{storageId}` - Delete file

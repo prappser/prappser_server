@@ -1,4 +1,4 @@
-files/config.yaml
+.env
 files/prappser.db
 
 .serena

@@ -9,48 +9,45 @@ import (
 	"strings"
 
 	"github.com/prappser/prappser_server/internal/user"
-	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
 	Users          user.Config
+	Storage        StorageConfig
 	Port           string
 	ExternalURL    string
 	AllowedOrigins []string
 	MasterPassword string
 }
 
+type StorageConfig struct {
+	StorageType  string
+	LocalPath    string
+	S3Endpoint   string
+	S3Bucket     string
+	S3AccessKey  string
+	S3SecretKey  string
+	S3Region     string
+	S3UseSSL     bool
+	MaxFileSize  int64
+	ChunkSize    int64
+}
+
 // Defaults
 const (
-	defaultPort                   = "4545"
-	defaultJWTExpirationHours     = 24
-	defaultChallengeTTLSec        = 300
+	defaultPort                    = "4545"
+	defaultJWTExpirationHours      = 24
+	defaultChallengeTTLSec         = 300
 	defaultRegistrationTokenTTLSec = 10
 )
 
 var defaultAllowedOrigins = []string{"https://prappser.app", "http://localhost:*", "https://localhost:*"}
 
-func maskString(s string) string {
-	if s == "" {
-		return "(empty)"
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
 	}
-	if len(s) <= 4 {
-		return "****"
-	}
-	return s[:2] + "****" + s[len(s)-2:]
-}
-
-func maskPassword(connStr string) string {
-	if connStr == "" {
-		return "(empty)"
-	}
-	if strings.Contains(connStr, "@") {
-		parts := strings.Split(connStr, "@")
-		if len(parts) >= 2 {
-			return "****@" + parts[len(parts)-1]
-		}
-	}
-	return "****"
+	return defaultVal
 }
 
 func resolveExternalURL(externalURL, hostingProvider, port string) string {
@@ -81,27 +78,14 @@ func resolveExternalURL(externalURL, hostingProvider, port string) string {
 }
 
 func LoadConfig() (*Config, error) {
-	// Read all environment variables upfront
 	envPort := os.Getenv("PORT")
 	envExternalURL := os.Getenv("EXTERNAL_URL")
 	envHostingProvider := os.Getenv("HOSTING_PROVIDER")
-	envDatabaseURL := os.Getenv("DATABASE_URL")
 	envMasterPassword := os.Getenv("MASTER_PASSWORD")
 	envAllowedOrigins := os.Getenv("ALLOWED_ORIGINS")
-	envLogLevel := os.Getenv("LOG_LEVEL")
 	envJWTExpirationHours := os.Getenv("JWT_EXPIRATION_HOURS")
 	envChallengeTTLSec := os.Getenv("CHALLENGE_TTL_SEC")
 	envRegistrationTokenTTLSec := os.Getenv("REGISTRATION_TOKEN_TTL_SEC")
-
-	log.Info().
-		Str("PORT", envPort).
-		Str("EXTERNAL_URL", envExternalURL).
-		Str("HOSTING_PROVIDER", envHostingProvider).
-		Str("DATABASE_URL", maskPassword(envDatabaseURL)).
-		Str("MASTER_PASSWORD", maskString(envMasterPassword)).
-		Str("ALLOWED_ORIGINS", envAllowedOrigins).
-		Str("LOG_LEVEL", envLogLevel).
-		Msg("Environment variables on startup")
 
 	// Validate required config
 	if envMasterPassword == "" {
@@ -113,12 +97,10 @@ func LoadConfig() (*Config, error) {
 		MasterPassword: envMasterPassword,
 	}
 
-	// Port
-	if envPort != "" {
-		config.Port = envPort
-	} else {
-		config.Port = defaultPort
+	if envPort == "" {
+		envPort = defaultPort
 	}
+	config.Port = envPort
 
 	// External URL
 	config.ExternalURL = resolveExternalURL(envExternalURL, envHostingProvider, config.Port)
@@ -138,47 +120,56 @@ func LoadConfig() (*Config, error) {
 	hash := md5.Sum([]byte(envMasterPassword))
 	config.Users.MasterPasswordMD5Hash = hex.EncodeToString(hash[:])
 
-	// JWT Expiration Hours
+	config.Users.JWTExpirationHours = defaultJWTExpirationHours
 	if envJWTExpirationHours != "" {
 		if hours, err := strconv.Atoi(envJWTExpirationHours); err == nil {
 			config.Users.JWTExpirationHours = hours
-		} else {
-			config.Users.JWTExpirationHours = defaultJWTExpirationHours
 		}
-	} else {
-		config.Users.JWTExpirationHours = defaultJWTExpirationHours
 	}
 
-	// Challenge TTL
+	config.Users.ChallengeTTLSec = defaultChallengeTTLSec
 	if envChallengeTTLSec != "" {
 		if seconds, err := strconv.Atoi(envChallengeTTLSec); err == nil {
 			config.Users.ChallengeTTLSec = seconds
-		} else {
-			config.Users.ChallengeTTLSec = defaultChallengeTTLSec
 		}
-	} else {
-		config.Users.ChallengeTTLSec = defaultChallengeTTLSec
 	}
 
-	// Registration Token TTL
+	config.Users.RegistrationTokenTTLSec = defaultRegistrationTokenTTLSec
 	if envRegistrationTokenTTLSec != "" {
 		if seconds, err := strconv.Atoi(envRegistrationTokenTTLSec); err == nil {
 			config.Users.RegistrationTokenTTLSec = int32(seconds)
-		} else {
-			config.Users.RegistrationTokenTTLSec = defaultRegistrationTokenTTLSec
 		}
-	} else {
-		config.Users.RegistrationTokenTTLSec = defaultRegistrationTokenTTLSec
 	}
 
-	log.Info().
-		Str("Port", config.Port).
-		Str("ExternalURL", config.ExternalURL).
-		Strs("AllowedOrigins", config.AllowedOrigins).
-		Int("JWTExpirationHours", config.Users.JWTExpirationHours).
-		Int("ChallengeTTLSec", config.Users.ChallengeTTLSec).
-		Bool("HasMasterPasswordHash", config.Users.MasterPasswordMD5Hash != "").
-		Msg("Final config loaded")
+	config.Storage.StorageType = getEnvOrDefault("STORAGE_TYPE", "local")
+	config.Storage.LocalPath = getEnvOrDefault("STORAGE_PATH", "./storage")
+
+	config.Storage.S3Endpoint = os.Getenv("STORAGE_S3_ENDPOINT")
+	config.Storage.S3Bucket = os.Getenv("STORAGE_S3_BUCKET")
+	config.Storage.S3AccessKey = os.Getenv("STORAGE_S3_ACCESS_KEY")
+	config.Storage.S3SecretKey = os.Getenv("STORAGE_S3_SECRET_KEY")
+	config.Storage.S3Region = getEnvOrDefault("STORAGE_S3_REGION", "us-east-1")
+	config.Storage.S3UseSSL = os.Getenv("STORAGE_S3_USE_SSL") != "false"
+
+	maxFileSizeMBStr := os.Getenv("STORAGE_MAX_FILE_SIZE_MB")
+	if maxFileSizeMBStr != "" {
+		if sizeMB, err := strconv.ParseInt(maxFileSizeMBStr, 10, 64); err == nil {
+			config.Storage.MaxFileSize = sizeMB * 1024 * 1024
+		}
+	}
+	if config.Storage.MaxFileSize <= 0 {
+		config.Storage.MaxFileSize = 50 * 1024 * 1024 // 50MB default
+	}
+
+	chunkSizeMBStr := os.Getenv("STORAGE_CHUNK_SIZE_MB")
+	if chunkSizeMBStr != "" {
+		if sizeMB, err := strconv.ParseInt(chunkSizeMBStr, 10, 64); err == nil {
+			config.Storage.ChunkSize = sizeMB * 1024 * 1024
+		}
+	}
+	if config.Storage.ChunkSize <= 0 {
+		config.Storage.ChunkSize = 5 * 1024 * 1024 // 5MB default
+	}
 
 	return config, nil
 }
