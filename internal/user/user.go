@@ -115,14 +115,14 @@ func (ue UserEndpoints) OwnerRegister(ctx *fasthttp.RequestCtx) {
 	registerJWEClaims, err := owner.DecryptJWE(jwe, ue.config.MasterPasswordMD5Hash)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to decrypt JWE")
-		ctx.Error("Failed to decrypt JWE", fasthttp.StatusBadRequest)
+		ctx.Error("Failed to decrypt JWE", fasthttp.StatusUnauthorized)
 		return
 	}
 
 	registerJWSClaims, err := owner.VerifyJWS(registerJWEClaims.JWS, ue.config.RegistrationTokenTTLSec)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to verify JWS")
-		ctx.Error("Failed to verify JWS", fasthttp.StatusBadRequest)
+		ctx.Error("Failed to verify JWS", fasthttp.StatusUnauthorized)
 		return
 	}
 

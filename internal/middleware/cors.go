@@ -49,26 +49,30 @@ func (cm *CORSMiddleware) Handle(next fasthttp.RequestHandler) fasthttp.RequestH
 			Bool("isAllowed", isAllowed).
 			Msg("CORS check")
 
-		// Set CORS headers based on origin
-		if isAllowed && origin != "" {
-			ctx.Response.Header.Set("Access-Control-Allow-Origin", origin)
-			ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
-		} else if len(cm.allowedOrigins) == 1 && cm.allowedOrigins[0] == "*" {
-			ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-		}
-
-		ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		ctx.Response.Header.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		ctx.Response.Header.Set("Access-Control-Expose-Headers", "Authorization, Content-Type")
-		ctx.Response.Header.Set("Access-Control-Max-Age", "86400")
-
 		if string(ctx.Method()) == "OPTIONS" {
+			cm.setCORSHeaders(ctx, origin, isAllowed)
 			ctx.SetStatusCode(fasthttp.StatusNoContent)
 			return
 		}
 
 		next(ctx)
+
+		cm.setCORSHeaders(ctx, origin, isAllowed)
 	}
+}
+
+func (cm *CORSMiddleware) setCORSHeaders(ctx *fasthttp.RequestCtx, origin string, isAllowed bool) {
+	if isAllowed && origin != "" {
+		ctx.Response.Header.Set("Access-Control-Allow-Origin", origin)
+		ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+	} else if len(cm.allowedOrigins) == 1 && cm.allowedOrigins[0] == "*" {
+		ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	}
+
+	ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	ctx.Response.Header.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	ctx.Response.Header.Set("Access-Control-Expose-Headers", "Authorization, Content-Type")
+	ctx.Response.Header.Set("Access-Control-Max-Age", "86400")
 }
 
 func extractOriginFromURL(url string) string {
