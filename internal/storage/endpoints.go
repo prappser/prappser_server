@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/prappser/prappser_server/internal/application"
+	"github.com/prappser/prappser_server/internal/user"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 )
@@ -120,11 +121,12 @@ func (e *Endpoints) InitChunkedUpload(ctx *fasthttp.RequestCtx) {
 }
 
 func (e *Endpoints) UploadChunk(ctx *fasthttp.RequestCtx) {
-	publicKey, ok := ctx.UserValue("publicKey").(string)
-	if !ok {
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
 	}
+	publicKey := authenticatedUser.PublicKey
 
 	storageID, ok := ctx.UserValue("storageID").(string)
 	if !ok || storageID == "" {
@@ -165,11 +167,12 @@ func (e *Endpoints) UploadChunk(ctx *fasthttp.RequestCtx) {
 }
 
 func (e *Endpoints) CompleteChunkedUpload(ctx *fasthttp.RequestCtx) {
-	publicKey, ok := ctx.UserValue("publicKey").(string)
-	if !ok {
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
 	}
+	publicKey := authenticatedUser.PublicKey
 
 	storageID, ok := ctx.UserValue("storageID").(string)
 	if !ok || storageID == "" {
@@ -245,11 +248,12 @@ func (e *Endpoints) GetThumbnail(ctx *fasthttp.RequestCtx) {
 }
 
 func (e *Endpoints) DeleteFile(ctx *fasthttp.RequestCtx) {
-	publicKey, ok := ctx.UserValue("publicKey").(string)
-	if !ok {
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return
 	}
+	publicKey := authenticatedUser.PublicKey
 
 	storageID, ok := ctx.UserValue("storageID").(string)
 	if !ok || storageID == "" {
@@ -275,11 +279,12 @@ func (e *Endpoints) DeleteFile(ctx *fasthttp.RequestCtx) {
 }
 
 func (e *Endpoints) checkAuthorization(ctx *fasthttp.RequestCtx) (appID, publicKey string, ok bool) {
-	publicKey, ok = ctx.UserValue("publicKey").(string)
-	if !ok {
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return "", "", false
 	}
+	publicKey = authenticatedUser.PublicKey
 
 	appID = string(ctx.QueryArgs().Peek("applicationId"))
 	if appID == "" {
@@ -301,11 +306,12 @@ func (e *Endpoints) checkAuthorization(ctx *fasthttp.RequestCtx) (appID, publicK
 }
 
 func (e *Endpoints) getStorageAndCheckAccess(ctx *fasthttp.RequestCtx) (stored *Storage, publicKey string, ok bool) {
-	publicKey, ok = ctx.UserValue("publicKey").(string)
-	if !ok {
+	authenticatedUser, ok := ctx.UserValue("user").(*user.User)
+	if !ok || authenticatedUser == nil {
 		ctx.Error("Unauthorized", fasthttp.StatusUnauthorized)
 		return nil, "", false
 	}
+	publicKey = authenticatedUser.PublicKey
 
 	storageID, ok := ctx.UserValue("storageID").(string)
 	if !ok || storageID == "" {
