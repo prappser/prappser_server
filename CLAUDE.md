@@ -1,293 +1,195 @@
 # PRIORITY RULE
-# All code, refactoring, and documentation decisions MUST prioritize the rules and guidelines defined in this .cursorrules file above all other conventions, external documentation, or inferred best practices.
-# If there is any conflict between .cursorrules and other sources (including language idioms, external style guides, or team habits), the .cursorrules file takes precedence.
-# When in doubt, clarify or extend .cursorrules rather than deferring to outside conventions.
+# All code, refactoring, and documentation decisions MUST prioritize the rules and guidelines defined in this file above all other conventions, external documentation, or inferred best practices.
 
 ## PROJECT STATUS
-**NOTE: This application is NOT production-ready.** The current implementation is in active development phase and should not be used in production environments. Key considerations:
 
-- Database migrations are consolidated into a single init migration for development convenience
+**NOTE: This application is NOT production-ready.** Active development phase.
+
+- Database uses additive migrations (NOT drop/recreate — that is the Flutter app only)
 - Security measures may not be production-grade
 - Performance optimizations have not been applied
-- Comprehensive error handling and logging need enhancement
-- Production deployment configurations are not implemented
+
+## Quick Commands
+
+```bash
+go run .                        # Dev server (requires DATABASE_URL + MASTER_PASSWORD env vars)
+go test ./...                   # Unit tests
+docker compose up -d && go test -tags=integration ./...  # Integration tests
+```
+
+## Required Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `MASTER_PASSWORD` | Yes | — | Used to encrypt/decrypt server Ed25519 keys |
+| `PORT` | No | `4545` | HTTP listen port |
+| `EXTERNAL_URL` | No | `http://localhost:{PORT}` | Public URL for invite links |
+| `ALLOWED_ORIGINS` | No | prappser.app + localhost:* | Comma-separated CORS origins |
+| `LOG_LEVEL` | No | `info` | debug/info/warn/error |
+| `STORAGE_TYPE` | No | `local` | `local` or `s3` |
+| `STORAGE_PATH` | No | `./storage` | Local storage path |
+
+## Tech Stack
+
+- **HTTP**: `github.com/valyala/fasthttp` — no router library, manual path switch in `internal/http.go`
+- **JSON**: `github.com/goccy/go-json` in handlers, `encoding/json` in repositories
+- **Database**: PostgreSQL via `github.com/lib/pq` (raw SQL, no ORM)
+- **Migrations**: `github.com/golang-migrate/migrate/v4` from `files/migrations/`
+- **Auth**: Ed25519 JWT via `github.com/golang-jwt/jwt/v5`; JWE/JWS for owner registration via `github.com/lestrrat-go/jwx/v3`
+- **Logging**: `github.com/rs/zerolog` — package-level `log` throughout
+- **WebSocket**: `github.com/fasthttp/websocket`
+- **Storage**: local filesystem or S3-compatible via `github.com/minio/minio-go/v7`
+- **Testing**: `github.com/stretchr/testify/assert`
+
+## Package Structure
+
+```
+main.go                    — wires all dependencies, starts fasthttp server
+internal/
+  config.go                — Config structs, LoadConfig() from env vars
+  db.go                    — NewDB(), runs golang-migrate on startup
+  http.go                  — NewRequestHandler(), single path-switch router
+  user/
+    user.go                — User struct, UserRepository interface, UserEndpoints struct, Config
+    user_repository.go     — userRepository (unexported) implementing UserRepository
+    user_service.go        — UserService: JWT generation/validation
+    user_test.go
+    owner/                 — JWE/JWS decryption for owner registration
+  event/
+    event.go               — Event types/constants
+    event_repository.go    — EventRepository (exported concrete struct)
+    event_service.go       — EventService: accept, produce, execute events
+    event_endpoints.go     — EventEndpoints
+    event_validator.go     — ValidateEvent() and per-type validators
+    event_authorizer.go    — AuthorizeEvent()
+    event_cleanup.go       — CleanupScheduler (background goroutine)
+  application/
+    application.go         — Application, Member, Component, ComponentGroup types + MemberRole consts
+    application_repository.go — ApplicationRepository interface
+    repository.go          — Repository (exported concrete struct) implementing ApplicationRepository
+    application_service.go — ApplicationService
+    application_endpoints.go — ApplicationEndpoints
+    application_test.go
+    memory_repository.go   — in-memory implementation for tests
+  invitation/
+    invitation.go          — Invitation types
+    invitation_repository.go
+    invitation_service.go
+    invitation_endpoints.go
+  keys/
+    crypto.go              — Ed25519 keygen, AES-GCM encrypt/decrypt
+    crypto_test.go
+    keys_repository.go     — KeyRepository (stores encrypted server keypair)
+    keys_service.go        — KeyService: Initialize(), PrivateKey(), PublicKey()
+    keys_repository_integration_test.go
+  storage/
+    models.go              — StorageItem types
+    storage.go             — StorageBackend interface, NewBackend()
+    local_storage.go       — local filesystem backend
+    s3_storage.go          — S3/MinIO backend
+    repository.go          — Repository
+    service.go             — Service
+    endpoints.go           — Endpoints
+  middleware/
+    auth.go                — AuthMiddleware: RequireAuth(), RequireRole()
+    cors.go                — CORSMiddleware: Handle()
+  websocket/
+    hub.go                 — Hub: manages connected clients, BroadcastToApplication()
+    client.go              — Client: per-connection read/write pumps
+    handler.go             — Handler: upgrades HTTP to WebSocket
+    message.go             — WebSocket message types
+  health/
+    health.go              — HealthEndpoints
+  status/
+    status.go              — StatusEndpoints
+  setup/
+    setup.go               — SetupEndpoints (Railway token)
+files/
+  migrations/              — golang-migrate SQL files (000001_init.up.sql, etc.)
+```
+
+## Architecture Patterns
+
+### Layering (per domain package)
+1. **Model** (`{domain}.go`) — types, constants, interfaces
+2. **Repository** (`{domain}_repository.go`) — raw SQL via `*sql.DB`
+3. **Service** (`{domain}_service.go`) — business logic
+4. **Endpoints** (`{domain}_endpoints.go`) — fasthttp handlers
+
+### Dependency Injection
+Manual, top-down in `main.go`. No DI framework. Constructors are `New{Type}(deps...)`.
+
+### Interfaces
+Defined next to the types that use them (in `{domain}.go`). Only created when there is a real need for abstraction (multiple implementations or cross-package usage), not for testing alone.
+
+### Auth Flow
+1. Client gets challenge via `GET /users/challenge?publicKey=...`
+2. Client signs challenge with their Ed25519 private key → submits JWS via `POST /users/auth`
+3. Server verifies signature against stored public key → issues JWT
+4. JWT is validated on every protected request by `AuthMiddleware`
+5. Authenticated user is stored in fasthttp context as `ctx.UserValue("user")`
+
+### Event System
+Client-produced events architecture:
+- Clients submit events via `POST /events`
+- Server validates, authorizes, sequences, persists, then executes (updates DB state)
+- Events are broadcast to WebSocket subscribers
+- Server-produced events (from service actions) use `EventService.ProduceEvent()`
 
 ## Naming Conventions
 
-## Table of Contents
+| Concept | Pattern | Example |
+|---------|---------|---------|
+| Packages | lowercase, single word | `user`, `event`, `middleware` |
+| Exported types | PascalCase | `UserService`, `EventEndpoints` |
+| Unexported types | camelCase | `userRepository`, `challengeInfo` |
+| Constructors | `New{Type}` | `NewUserService`, `NewEventRepository` |
+| Method receivers | short abbreviation | `us` (UserService), `ee` (EventEndpoints), `r` (repos) |
+| Exported constants | PascalCase | `RoleOwner`, `MemberRoleOwner` |
+| Unexported constants | camelCase | `defaultPort`, `headerAuthorization` |
+| Test functions | `Test{Func}_{Should...}` | `TestGenerateChallenge_ShouldGenerateUniqueChallenge` |
 
-- [Naming Conventions](#naming-conventions)
-  - [Packages](#packages)
-  - [Types and Interfaces](#types-and-interfaces)
-  - [Functions and Methods](#functions-and-methods)
-  - [Variables](#variables)
-  - [Constants](#constants)
-- [Logging](#logging)
-  - [Logger Usage](#logger-usage)
-  - [Log Levels](#log-levels)
-  - [Contextual Logging](#contextual-logging)
-- [Testing](#testing)
-  - [Test Structure](#test-structure)
-- [Interface Design](#interface-design)
-  - [Interface Segregation](#interface-segregation)
-- [Context Usage](#context-usage)
-  - [Context Propagation](#context-propagation)
-  - [Context Values](#context-values)
-- [Configuration](#configuration)
-  - [Configuration Structure](#configuration-structure)
-  - [Configuration Validation](#configuration-validation)
-- [Metrics](#metrics)
-  - [Prometheus Metrics](#prometheus-metrics)
-  - [Metric Labels](#metric-labels)
-  - [Metric Registration](#metric-registration)
-- [Code Organization](#code-organization)
-  - [File Structure](#file-structure)
-  - [Function Length](#function-length)
-  - [Constants and Magic Numbers](#constants-and-magic-numbers)
-- [Documentation](#documentation)
-  - [README Files](#readme-files)
-  - [Code Comments](#code-comments)
-- [Best Practices](#best-practices)
-  - [Performance](#performance)
-  - [Security](#security)
-  - [Maintainability](#maintainability)
-  - [Code Review](#code-review)
-- [Tools and Automation](#tools-and-automation)
-  - [Code Formatting](#code-formatting)
-  - [Testing](#testing-1)
-  - [CI/CD](#cicd)
+## Testing Patterns
 
-### Packages
-- Use lowercase names
-- Underscores are allowed but try to think about single word name mostly
-- Examples: `auction`, `config`, `exchange`, `bid_filtering`
+- Tests in same package as code (`package user`, not `package user_test`)
+- BDD structure: `// given`, `// when`, `// then`
+- Hand-written mock repositories (no mockgen)
+- Integration tests: `//go:build integration` in `*_integration_test.go`
+- Assertions: `testify/assert` (stdlib `t.Fatalf` acceptable in crypto tests)
+- Multiple separate test functions preferred over `t.Run`
 
-### Types and Interfaces
-- Use PascalCase for exported types
-- Use descriptive names that indicate purpose
-- Interface names should end with the capability they provide
-- Examples: `AuctionService`, `BidderClient`, `CacheClient`
+## Logging (zerolog)
 
-### Functions and Methods
-- Use PascalCase for exported functions
-- Use camelCase for unexported functions
-- Method names should be descriptive and action-oriented
-- Examples: `CreateAuctionService`, `RequestBid`, `ValidateRequest`
+- Package-level `log` from `github.com/rs/zerolog/log` — never pass logger as parameter
+- `log.Debug()` — per-step flow tracing (bracket prefix: `"[EVENT] Validation passed"`)
+- `log.Info()` — startup, significant successes
+- `log.Warn()` — recoverable issues (DB not ready, unknown config values)
+- `log.Error()` — before every 4xx/5xx response
+- `log.Fatal()` — only in `main.go` for startup failures
+- Always `.Err(err)` when logging an error; never log sensitive values raw
 
-### Variables
-- Use camelCase
-- Use descriptive names
-- Avoid abbreviations unless widely understood
-- Examples: `auctionRequest`, `bidResponse`, `cacheClient`
+## Error Handling
 
-### Constants
-- Use PascalCase for exported constants
-- Use lowerCase for internal constants
-- Examples: `TypeJSON`, `TypeXML`, `defaultTimeout`
+- Wrap with context: `fmt.Errorf("failed to X: %w", err)`
+- Sentinel errors: `var ErrValidation = errors.New("validation error")`
+- Repositories return `nil, nil` for "not found" when absence is a valid state
+- Endpoints map errors to HTTP status codes using `errors.Is()` or `err.Error()` string match
+- Never panic in business logic
 
-## Testing
+## Convention Skill Files
 
-### Test Structure
-- Place tests in `*_test.go` files in the same package
-- Use descriptive test names that explain the scenario
-- Follow the pattern: `Test[FunctionName]_[Scenario]`
-- Try to create multiple separate test cases instead of using `t.Run`
+Detailed conventions are documented as skill files in `.claude/skills/`:
 
-```go
-func TestAuctionService_ProcessRequest_ShouldProcessValidRequest(t *testing.T) {
-    // given
-    service := NewAuctionService()
-    request := &Request{ID: "test-123"}
-    
-    // when
-    result, err := service.ProcessRequest(context.Background(), request)
-    
-    // then
-    assert.NoError(t, err)
-    assert.NotNil(t, result)
-}
-```
-
-## Interface Design
-
-### Interface Segregation
-- Keep interfaces small and focused
-- Define interfaces close to where they are used
-- By default avoid interfaces and only introduce them if there is a need other than for testing
-
-```go
-type AuctionService interface {
-    RunExchange(ctx context.Context, request *Request) (*Response, error)
-    ValidateRequest(request *Request) error
-}
-
-type CacheClient interface {
-    Cache(ctx context.Context, items []Cacheable) []string
-}
-```
-
-## Context Usage
-
-### Context Propagation
-- Pass `context.Context` as the first parameter to functions
-- Use context for cancellation, timeouts, and request-scoped data
-- Don't store context in structs
-
-```go
-func (s *Service) ProcessRequest(ctx context.Context, req *Request) error {
-    // Use context for cancellation
-    select {
-    case <-ctx.Done():
-        return ctx.Err()
-    default:
-    }
-    
-    // Use context for timeouts
-    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-    defer cancel()
-    
-    return s.doProcess(ctx, req)
-}
-```
-
-### Context Values
-- Use context for request-scoped data (trace ID, user ID, etc.)
-- Don't use context for optional parameters
-- Use typed context keys
-
-```go
-type contextKey string
-
-const (
-    userIDKey contextKey = "user_id"
-    traceIDKey contextKey = "trace_id"
-)
-
-func WithUserID(ctx context.Context, userID string) context.Context {
-    return context.WithValue(ctx, userIDKey, userID)
-}
-
-func UserIDFromContext(ctx context.Context) (string, bool) {
-    userID, ok := ctx.Value(userIDKey).(string)
-    return userID, ok
-}
-```
-
-## Configuration
-
-### Configuration Structure
-- Use `mapstructure` tags for configuration binding
-- Provide sensible defaults
-- Use nested structures for complex configurations
-- Try to put config structs in a packages related to particular config
-
-```go
-type Config struct {
-    Host string `mapstructure:"host"`
-    Port int    `mapstructure:"port"`
-    
-    Cache struct {
-        Host   string `mapstructure:"host"`
-        Scheme string `mapstructure:"scheme"`
-    } `mapstructure:"cache"`
-    
-    Adapters map[string]AdapterConfig `mapstructure:"adapters"`
-}
-```
-
-### Configuration Validation
-- Validate configuration on startup
-- Return meaningful error messages
-- Use environment variables for sensitive data
-
-```go
-func (c *Config) validate() []error {
-    var errors []error
-    
-    if c.Host == "" {
-        errors = append(errors, errors.New("host is required"))
-    }
-    
-    if c.Port <= 0 {
-        errors = append(errors, errors.New("port must be positive"))
-    }
-    
-    return errors
-}
-```
-
-## Code Organization
-
-### File Structure
-- Keep files focused on a single responsibility
-- Use descriptive file names
-- Group related functionality together
-- Create subpackages only if there is too many files in a package
-
-### Function Length
-- Keep functions short and focused
-- Extract complex logic into separate functions
-- Use descriptive function names
-
-### Constants and Magic Numbers
-- Define constants for magic numbers and strings
-- Use descriptive constant names
-- Group related constants together
-
-```go
-const (
-    DefaultTimeout = 30 * time.Second
-    MaxBidCount    = 100
-    CacheTTL       = 24 * time.Hour
-)
-```
-
-## Documentation
-
-### README Files
-- Include setup instructions
-- Document configuration options
-
-### Code Comments
-- Put comments **ONLY** for non-obvious code decisions
-- Avoid comments when possible even for exported functions or types
-
-## Best Practices
-
-### Performance
-- Use appropriate data structures
-- Avoid unnecessary allocations
-- Use goroutines for concurrent operations
-- Profile code for performance bottlenecks
-
-### Security
-- Validate all input data
-- Use HTTPS for external communications
-- Follow security best practices for handling sensitive data
-
-### Maintainability
-- Write self-documenting code
-- Use consistent formatting (gofmt)
-- Follow the single responsibility principle
-- Keep dependencies minimal and up to date
-
-### Code Review
-- All code changes require review
-- Focus on correctness, performance, and maintainability
-- Ensure adequate test coverage
-- Check for security vulnerabilities
-
-## Tools and Automation
-
-### Code Formatting
-- Use `gofmt` for code formatting
-- Configure your editor to format on save
-
-### Testing
-- Run tests with `go test ./...`
-- Use `-race` flag for race condition detection
-
-### CI/CD
-- All changes must pass CI checks
-- Include automated testing
-- Use semantic versioning for releases
+| Skill | File |
+|-------|------|
+| Architecture | `.claude/skills/conv-architecture/SKILL.md` |
+| Naming | `.claude/skills/conv-naming/SKILL.md` |
+| Error handling | `.claude/skills/conv-errors/SKILL.md` |
+| Repositories | `.claude/skills/conv-repos/SKILL.md` |
+| HTTP handlers | `.claude/skills/conv-handlers/SKILL.md` |
+| Logging | `.claude/skills/conv-logging/SKILL.md` |
+| Testing | `.claude/skills/conv-testing/SKILL.md` |
+| Middleware | `.claude/skills/conv-middleware/SKILL.md` |
+| Configuration | `.claude/skills/conv-config/SKILL.md` |
+| Database | `.claude/skills/conv-database/SKILL.md` |

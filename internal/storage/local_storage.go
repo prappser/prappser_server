@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type LocalStorage struct {
@@ -90,5 +91,8 @@ func (s *LocalStorage) Exists(ctx context.Context, path string) (bool, error) {
 }
 
 func (s *LocalStorage) GetURL(ctx context.Context, path string) (string, error) {
-	return fmt.Sprintf("%s/storage/%s", s.externalURL, path), nil
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	storageID := strings.TrimSuffix(base, ext)
+	return fmt.Sprintf("%s/storage/%s", s.externalURL, storageID), nil
 }

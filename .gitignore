@@ -5,5 +5,5 @@ files/prappser.db
 prappser_server
 pkg
 __debug*
-.claude/dev-workflow/
-.claude/tmp/
+.claude/*
+!.claude/skills

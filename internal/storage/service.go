@@ -148,7 +148,7 @@ func (s *Service) Get(ctx context.Context, id string) (*Storage, error) {
 func (s *Service) populateURLs(ctx context.Context, stored *Storage) {
 	stored.URL, _ = s.backend.GetURL(ctx, stored.StoragePath)
 	if stored.ThumbnailPath != "" {
-		stored.ThumbnailURL, _ = s.backend.GetURL(ctx, stored.ThumbnailPath)
+		stored.ThumbnailURL = stored.URL + "/thumb"
 	}
 }
 
