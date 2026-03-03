@@ -34,3 +34,8 @@ type BroadcastMessage struct {
 	ApplicationID string
 	Event         *event.Event
 }
+
+type UserBroadcastMessage struct {
+	UserPublicKey string
+	Event         *event.Event
+}

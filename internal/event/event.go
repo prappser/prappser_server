@@ -16,7 +16,14 @@ const (
 	EventTypeInviteRevoked                  EventType = "invite_revoked"
 	EventTypeComponentDataChanged           EventType = "component_data_changed"
 	EventTypeApplicationAfterEditModeChanged EventType = "application_after_edit_mode_changed"
+	EventTypeUserSettingsChanged            EventType = "user_settings_changed"
+	EventTypeMemberDetailsChanged           EventType = "member_details_changed"
 )
+
+// IsUserScoped returns true for event types that are user-scoped (no applicationId)
+func IsUserScoped(eventType EventType) bool {
+	return eventType == EventTypeUserSettingsChanged
+}
 
 // Event represents a system event for application lifecycle changes
 type Event struct {
@@ -95,12 +102,12 @@ type ComponentDataChangedData struct {
 
 // StructureChange represents a single change in the application structure
 type StructureChange struct {
-	ChangeType    string                 `json:"changeType"`              // component_added, component_removed, etc.
-	EntityType    string                 `json:"entityType"`              // component or component_group
+	ChangeType    string                 `json:"changeType"`
+	EntityType    string                 `json:"entityType"`
 	EntityID      string                 `json:"entityId"`
-	Data          map[string]interface{} `json:"data,omitempty"`          // Full entity data for adds
-	Index         *int                   `json:"index,omitempty"`         // For reorder operations
-	ChangedFields map[string]FieldChange `json:"changedFields,omitempty"` // For component_data_changed
+	Data          map[string]interface{} `json:"data,omitempty"`
+	Index         *int                   `json:"index,omitempty"`
+	ChangedFields map[string]FieldChange `json:"changedFields,omitempty"`
 }
 
 // ApplicationAfterEditModeChangedData represents the data for an application_after_edit_mode_changed event
@@ -108,6 +115,20 @@ type ApplicationAfterEditModeChangedData struct {
 	Version       int               `json:"version"`
 	ApplicationID string            `json:"applicationId"`
 	Changes       []StructureChange `json:"changes"`
+}
+
+// UserSettingsChangedData represents the data for a user_settings_changed event
+type UserSettingsChangedData struct {
+	Version         int    `json:"version"`
+	UserPublicKey   string `json:"userPublicKey"`
+	AvatarStorageID string `json:"avatarStorageId,omitempty"`
+}
+
+// MemberDetailsChangedData represents the data for a member_details_changed event (future use)
+type MemberDetailsChangedData struct {
+	Version         int    `json:"version"`
+	ApplicationID   string `json:"applicationId"`
+	MemberPublicKey string `json:"memberPublicKey"`
 }
 
 // EventsResponse represents the response for GET /events endpoint

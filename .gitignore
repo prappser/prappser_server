@@ -7,3 +7,19 @@ pkg
 __debug*
 .claude/*
 !.claude/skills
+
+# Claude Code sandbox artifacts
+.bash_profile
+.bashrc
+.zshrc
+.zprofile
+.profile
+.gitconfig
+.gitmodules
+.mcp.json
+.ripgreprc
+HEAD
+config
+hooks
+objects
+refs

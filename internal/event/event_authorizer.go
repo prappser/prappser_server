@@ -82,8 +82,34 @@ func AuthorizeEvent(event *Event, submitter *user.User, app *application.Applica
 	case EventTypeApplicationAfterEditModeChanged:
 		// Any member can modify application structure
 
+	case EventTypeMemberDetailsChanged:
+		// Members can only update their own details within an application
+		memberKey, ok := event.Data["memberPublicKey"].(string)
+		if !ok || memberKey != submitter.PublicKey {
+			return fmt.Errorf("%w: can only update own member details", ErrUnauthorized)
+		}
+
 	default:
 		return fmt.Errorf("%w: unknown event type: %s", ErrUnauthorized, event.Type)
+	}
+
+	return nil
+}
+
+// AuthorizeUserScopedEvent checks authorization for user-scoped events (no application context).
+func AuthorizeUserScopedEvent(event *Event, submitter *user.User) error {
+	if submitter == nil {
+		return fmt.Errorf("%w: submitter is required", ErrUnauthorized)
+	}
+
+	switch event.Type {
+	case EventTypeUserSettingsChanged:
+		userPK, ok := event.Data["userPublicKey"].(string)
+		if !ok || userPK != submitter.PublicKey {
+			return fmt.Errorf("%w: can only update own user settings", ErrUnauthorized)
+		}
+	default:
+		return fmt.Errorf("%w: unknown user-scoped event type: %s", ErrUnauthorized, event.Type)
 	}
 
 	return nil
