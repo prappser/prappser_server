@@ -14,6 +14,7 @@ import (
 // EventBroadcaster broadcasts events to connected WebSocket clients
 type EventBroadcaster interface {
 	BroadcastToApplication(applicationID string, event *Event)
+	BroadcastToUser(userPublicKey string, event *Event)
 }
 
 type EventService struct {
@@ -45,6 +46,11 @@ func (s *EventService) AcceptEvent(ctx context.Context, event *Event, submitter 
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 	log.Debug().Str("eventId", event.ID).Msg("[EVENT] Validation passed")
+
+	// User-scoped events bypass application lookup and use a separate authorization path
+	if IsUserScoped(event.Type) {
+		return s.acceptUserScopedEvent(ctx, event, submitter)
+	}
 
 	appID, ok := event.Data["applicationId"].(string)
 	if !ok || appID == "" {
@@ -124,6 +130,63 @@ func (s *EventService) AcceptEvent(ctx context.Context, event *Event, submitter 
 	return event, nil
 }
 
+// acceptUserScopedEvent handles the user-scoped event path (no application context).
+func (s *EventService) acceptUserScopedEvent(ctx context.Context, event *Event, submitter *user.User) (*Event, error) {
+	if err := AuthorizeUserScopedEvent(event, submitter); err != nil {
+		log.Debug().
+			Str("eventId", event.ID).
+			Err(err).
+			Msg("[EVENT] Authorization failed")
+		return nil, fmt.Errorf("authorization failed: %w", err)
+	}
+	log.Debug().Str("eventId", event.ID).Msg("[EVENT] Authorization passed")
+
+	// User-scoped events have no sequence number
+	event.SequenceNumber = 0
+	event.CreatedAt = time.Now().Unix()
+
+	log.Debug().
+		Str("eventId", event.ID).
+		Msg("[EVENT] Persisting user-scoped event to database")
+
+	if err := s.repo.Create(event); err != nil {
+		log.Error().
+			Str("eventId", event.ID).
+			Err(err).
+			Msg("[EVENT] Persistence failed")
+		return nil, fmt.Errorf("persistence failed: %w", err)
+	}
+
+	log.Debug().
+		Str("eventId", event.ID).
+		Str("type", string(event.Type)).
+		Msg("[EVENT] Executing")
+
+	if err := s.executeEvent(ctx, event); err != nil {
+		log.Error().
+			Str("eventId", event.ID).
+			Str("type", string(event.Type)).
+			Err(err).
+			Msg("[EVENT] Execution failed - event persisted but database state not updated")
+	} else {
+		log.Debug().
+			Str("eventId", event.ID).
+			Str("type", string(event.Type)).
+			Msg("[EVENT] Execution complete")
+	}
+
+	log.Info().
+		Str("eventId", event.ID).
+		Str("type", string(event.Type)).
+		Msg("[EVENT] User-scoped event accepted successfully")
+
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToUser(event.CreatorPublicKey, event)
+	}
+
+	return event, nil
+}
+
 // ProduceEvent creates an event without authorization checks.
 // Used for server-generated events where the action was already validated by the endpoint.
 // The event is sequenced, persisted, and executed but authorization is skipped.
@@ -141,6 +204,11 @@ func (s *EventService) ProduceEvent(ctx context.Context, event *Event) (*Event, 
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 	log.Debug().Str("eventId", event.ID).Msg("[EVENT] Validation passed")
+
+	// User-scoped events have no application context or sequence number
+	if IsUserScoped(event.Type) {
+		return s.produceUserScopedEvent(ctx, event)
+	}
 
 	appID, ok := event.Data["applicationId"].(string)
 	if !ok || appID == "" {
@@ -182,14 +250,14 @@ func (s *EventService) ProduceEvent(ctx context.Context, event *Event) (*Event, 
 		// Event is already persisted and sequenced
 		log.Error().
 			Str("eventId", event.ID).
-			Str("eventType", string(event.Type)).
+			Str("type", string(event.Type)).
 			Str("applicationId", event.ApplicationID).
 			Err(err).
 			Msg("[EVENT] Execution failed - event persisted but database state not updated")
 	} else {
 		log.Debug().
 			Str("eventId", event.ID).
-			Str("eventType", string(event.Type)).
+			Str("type", string(event.Type)).
 			Str("applicationId", event.ApplicationID).
 			Msg("[EVENT] Execution complete")
 	}
@@ -203,6 +271,53 @@ func (s *EventService) ProduceEvent(ctx context.Context, event *Event) (*Event, 
 	// Broadcast to WebSocket clients
 	if s.broadcaster != nil {
 		s.broadcaster.BroadcastToApplication(event.ApplicationID, event)
+	}
+
+	return event, nil
+}
+
+// produceUserScopedEvent handles the user-scoped path for server-produced events.
+func (s *EventService) produceUserScopedEvent(ctx context.Context, event *Event) (*Event, error) {
+	event.SequenceNumber = 0
+	event.CreatedAt = time.Now().Unix()
+
+	log.Debug().
+		Str("eventId", event.ID).
+		Msg("[EVENT] Persisting user-scoped server-produced event to database")
+
+	if err := s.repo.Create(event); err != nil {
+		log.Error().
+			Str("eventId", event.ID).
+			Err(err).
+			Msg("[EVENT] Persistence failed")
+		return nil, fmt.Errorf("persistence failed: %w", err)
+	}
+
+	log.Debug().
+		Str("eventId", event.ID).
+		Str("type", string(event.Type)).
+		Msg("[EVENT] Executing")
+
+	if err := s.executeEvent(ctx, event); err != nil {
+		log.Error().
+			Str("eventId", event.ID).
+			Str("type", string(event.Type)).
+			Err(err).
+			Msg("[EVENT] Execution failed - event persisted but database state not updated")
+	} else {
+		log.Debug().
+			Str("eventId", event.ID).
+			Str("type", string(event.Type)).
+			Msg("[EVENT] Execution complete")
+	}
+
+	log.Info().
+		Str("eventId", event.ID).
+		Str("type", string(event.Type)).
+		Msg("[EVENT] Server-produced user-scoped event accepted successfully")
+
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToUser(event.CreatorPublicKey, event)
 	}
 
 	return event, nil
@@ -226,6 +341,16 @@ func (s *EventService) GetEventsSince(userPublicKey string, sinceEventID string,
 		Events:  events,
 		HasMore: hasMore,
 	}, nil
+}
+
+// CleanupOldEvents deletes events older than the retention period (7 days)
+func (s *EventService) CleanupOldEvents(retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		retentionDays = 7 // Default 7 days
+	}
+
+	cutoffTime := time.Now().AddDate(0, 0, -retentionDays).Unix()
+	return s.repo.DeleteOlderThan(cutoffTime)
 }
 
 // executeEvent executes an event by updating the database state
@@ -254,6 +379,18 @@ func (s *EventService) executeEvent(ctx context.Context, event *Event) error {
 	case "application_after_edit_mode_changed":
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_after_edit_mode_changed")
 		return s.executeApplicationAfterEditModeChanged(ctx, event)
+	case "user_settings_changed":
+		// No server-side state changes needed for v1 (avatar is in storage)
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: user_settings_changed (no-op)")
+		return nil
+	case "member_details_changed":
+		// Future: update member record
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: member_details_changed (no-op)")
+		return nil
+	case "application_created":
+		// No server-side state change: application was already registered by the creator device
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_created (no-op)")
+		return nil
 	default:
 		// Unknown event types are not executed (forward compatibility)
 		log.Debug().
@@ -386,16 +523,6 @@ func (s *EventService) executeMemberRoleChanged(ctx context.Context, event *Even
 	// Update role
 	member.Role = application.MemberRole(newRole)
 	return s.appRepo.UpdateMember(member)
-}
-
-// CleanupOldEvents deletes events older than the retention period (7 days)
-func (s *EventService) CleanupOldEvents(retentionDays int) (int64, error) {
-	if retentionDays <= 0 {
-		retentionDays = 7 // Default 7 days
-	}
-
-	cutoffTime := time.Now().AddDate(0, 0, -retentionDays).Unix()
-	return s.repo.DeleteOlderThan(cutoffTime)
 }
 
 // executeComponentDataChanged applies delta changes to a component's data
