@@ -391,6 +391,10 @@ func (s *EventService) executeEvent(ctx context.Context, event *Event) error {
 		// No server-side state change: application was already registered by the creator device
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_created (no-op)")
 		return nil
+	case EventTypeApplicationFileCreated, EventTypeApplicationFileDeleted:
+		// Storage already managed by storage service; event is for client sync only
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_file event (no-op)")
+		return nil
 	default:
 		// Unknown event types are not executed (forward compatibility)
 		log.Debug().

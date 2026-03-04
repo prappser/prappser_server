@@ -141,7 +141,7 @@ func main() {
 	}
 
 	storageService := storage.NewService(storageRepo, storageBackend, config.Storage.MaxFileSize)
-	storageEndpoints := storage.NewEndpoints(storageService, appRepository)
+	storageEndpoints := storage.NewEndpoints(storageService, appRepository, eventService)
 	log.Info().Str("storageType", config.Storage.StorageType).Msg("Storage service initialized")
 
 	wsHandler := websocket.NewHandler(wsHub, userService)

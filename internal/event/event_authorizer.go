@@ -89,6 +89,9 @@ func AuthorizeEvent(event *Event, submitter *user.User, app *application.Applica
 			return fmt.Errorf("%w: can only update own member details", ErrUnauthorized)
 		}
 
+	case EventTypeApplicationFileCreated, EventTypeApplicationFileDeleted:
+		return fmt.Errorf("%w: file events are server-produced and cannot be submitted by clients", ErrUnauthorized)
+
 	default:
 		return fmt.Errorf("%w: unknown event type: %s", ErrUnauthorized, event.Type)
 	}

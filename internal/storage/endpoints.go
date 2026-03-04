@@ -2,26 +2,36 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/prappser/prappser_server/internal/application"
+	"github.com/prappser/prappser_server/internal/event"
 	"github.com/prappser/prappser_server/internal/user"
 	"github.com/rs/zerolog/log"
 	"github.com/valyala/fasthttp"
 )
 
-type Endpoints struct {
-	service *Service
-	appRepo *application.Repository
+// EventService is the interface for producing server-generated events.
+type EventService interface {
+	ProduceEvent(ctx context.Context, e *event.Event) (*event.Event, error)
 }
 
-func NewEndpoints(service *Service, appRepo *application.Repository) *Endpoints {
+type Endpoints struct {
+	service      *Service
+	appRepo      *application.Repository
+	eventService EventService
+}
+
+func NewEndpoints(service *Service, appRepo *application.Repository, eventService EventService) *Endpoints {
 	return &Endpoints{
-		service: service,
-		appRepo: appRepo,
+		service:      service,
+		appRepo:      appRepo,
+		eventService: eventService,
 	}
 }
 
@@ -88,6 +98,25 @@ func (e *Endpoints) Upload(ctx *fasthttp.RequestCtx) {
 		log.Error().Err(err).Msg("Failed to upload file")
 		ctx.Error(err.Error(), fasthttp.StatusBadRequest)
 		return
+	}
+
+	evt := &event.Event{
+		ID:               newEventID(),
+		Type:             event.EventTypeApplicationFileCreated,
+		CreatorPublicKey: publicKey,
+		ApplicationID:    appID,
+		Data: map[string]interface{}{
+			"version":       1,
+			"applicationId": appID,
+			"fileId":        stored.ID,
+			"filename":      stored.Filename,
+			"contentType":   stored.ContentType,
+			"sizeBytes":     stored.SizeBytes,
+			"remoteUrl":     stored.URL,
+		},
+	}
+	if _, err := e.eventService.ProduceEvent(ctx, evt); err != nil {
+		log.Error().Err(err).Str("fileId", stored.ID).Msg("[STORAGE] Failed to produce application_file_created event")
 	}
 
 	response, _ := json.Marshal(stored)
@@ -197,6 +226,25 @@ func (e *Endpoints) CompleteChunkedUpload(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	evt := &event.Event{
+		ID:               newEventID(),
+		Type:             event.EventTypeApplicationFileCreated,
+		CreatorPublicKey: publicKey,
+		ApplicationID:    completedStorage.ApplicationID,
+		Data: map[string]interface{}{
+			"version":       1,
+			"applicationId": completedStorage.ApplicationID,
+			"fileId":        completedStorage.ID,
+			"filename":      completedStorage.Filename,
+			"contentType":   completedStorage.ContentType,
+			"sizeBytes":     completedStorage.SizeBytes,
+			"remoteUrl":     completedStorage.URL,
+		},
+	}
+	if _, err := e.eventService.ProduceEvent(ctx, evt); err != nil {
+		log.Error().Err(err).Str("fileId", completedStorage.ID).Msg("[STORAGE] Failed to produce application_file_created event")
+	}
+
 	response, _ := json.Marshal(completedStorage)
 	ctx.SetContentType("application/json")
 	ctx.SetStatusCode(fasthttp.StatusOK)
@@ -261,8 +309,15 @@ func (e *Endpoints) DeleteFile(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	err := e.service.Delete(ctx, storageID, publicKey)
+	// Fetch record before deletion to capture metadata for the event
+	stored, err := e.service.Get(ctx, storageID)
 	if err != nil {
+		ctx.Error("Storage not found", fasthttp.StatusNotFound)
+		return
+	}
+	appID := stored.ApplicationID
+
+	if err := e.service.Delete(ctx, storageID, publicKey); err != nil {
 		errMsg := err.Error()
 		switch {
 		case strings.Contains(errMsg, "not authorized"):
@@ -273,6 +328,21 @@ func (e *Endpoints) DeleteFile(ctx *fasthttp.RequestCtx) {
 			ctx.Error("Failed to delete file", fasthttp.StatusInternalServerError)
 		}
 		return
+	}
+
+	evt := &event.Event{
+		ID:               newEventID(),
+		Type:             event.EventTypeApplicationFileDeleted,
+		CreatorPublicKey: publicKey,
+		ApplicationID:    appID,
+		Data: map[string]interface{}{
+			"version":       1,
+			"applicationId": appID,
+			"fileId":        storageID,
+		},
+	}
+	if _, err := e.eventService.ProduceEvent(ctx, evt); err != nil {
+		log.Error().Err(err).Str("fileId", storageID).Msg("[STORAGE] Failed to produce application_file_deleted event")
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusNoContent)
@@ -336,6 +406,15 @@ func (e *Endpoints) getStorageAndCheckAccess(ctx *fasthttp.RequestCtx) (stored *
 	}
 
 	return stored, publicKey, true
+}
+
+// newEventID generates a UUID v7 (time-ordered) for event IDs, falling back to v4 on clock error.
+func newEventID() string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.New().String()
+	}
+	return id.String()
 }
 
 func detectContentType(filename string) string {

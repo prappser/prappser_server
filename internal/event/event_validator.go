@@ -46,6 +46,10 @@ func ValidateEvent(event *Event) error {
 		return validateMemberDetailsChangedData(event.Data)
 	case EventTypeApplicationCreated:
 		return validateApplicationCreatedData(event.Data)
+	case EventTypeApplicationFileCreated:
+		return validateApplicationFileCreatedData(event.Data)
+	case EventTypeApplicationFileDeleted:
+		return validateApplicationFileDeletedData(event.Data)
 	default:
 		return fmt.Errorf("%w: unknown event type: %s", ErrValidation, event.Type)
 	}
@@ -140,6 +144,40 @@ func validateMemberDetailsChangedData(data map[string]interface{}) error {
 	}
 	if _, ok := data["memberPublicKey"].(string); !ok || data["memberPublicKey"] == "" {
 		return fmt.Errorf("%w: memberPublicKey is required", ErrValidation)
+	}
+	return nil
+}
+
+func validateApplicationFileCreatedData(data map[string]interface{}) error {
+	if _, ok := data["applicationId"].(string); !ok || data["applicationId"] == "" {
+		return fmt.Errorf("%w: applicationId is required", ErrValidation)
+	}
+	if _, ok := data["fileId"].(string); !ok || data["fileId"] == "" {
+		return fmt.Errorf("%w: fileId is required", ErrValidation)
+	}
+	if _, ok := data["filename"].(string); !ok || data["filename"] == "" {
+		return fmt.Errorf("%w: filename is required", ErrValidation)
+	}
+	if _, ok := data["contentType"].(string); !ok || data["contentType"] == "" {
+		return fmt.Errorf("%w: contentType is required", ErrValidation)
+	}
+	if _, ok := data["sizeBytes"].(int64); !ok {
+		if _, ok := data["sizeBytes"].(float64); !ok {
+			return fmt.Errorf("%w: sizeBytes is required", ErrValidation)
+		}
+	}
+	if _, ok := data["remoteUrl"].(string); !ok || data["remoteUrl"] == "" {
+		return fmt.Errorf("%w: remoteUrl is required", ErrValidation)
+	}
+	return nil
+}
+
+func validateApplicationFileDeletedData(data map[string]interface{}) error {
+	if _, ok := data["applicationId"].(string); !ok || data["applicationId"] == "" {
+		return fmt.Errorf("%w: applicationId is required", ErrValidation)
+	}
+	if _, ok := data["fileId"].(string); !ok || data["fileId"] == "" {
+		return fmt.Errorf("%w: fileId is required", ErrValidation)
 	}
 	return nil
 }

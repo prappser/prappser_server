@@ -19,6 +19,8 @@ const (
 	EventTypeUserSettingsChanged            EventType = "user_settings_changed"
 	EventTypeMemberDetailsChanged           EventType = "member_details_changed"
 	EventTypeApplicationCreated             EventType = "application_created"
+	EventTypeApplicationFileCreated         EventType = "application_file_created"
+	EventTypeApplicationFileDeleted         EventType = "application_file_deleted"
 )
 
 // IsUserScoped returns true for event types that are user-scoped (no applicationId)
@@ -131,6 +133,24 @@ type ApplicationCreatedData struct {
 	UserPublicKey   string `json:"userPublicKey"`
 	ApplicationID   string `json:"applicationId"`
 	ApplicationName string `json:"applicationName"`
+}
+
+// ApplicationFileCreatedData represents the data for an application_file_created event
+type ApplicationFileCreatedData struct {
+	Version       int    `json:"version"`
+	ApplicationID string `json:"applicationId"`
+	FileID        string `json:"fileId"`
+	Filename      string `json:"filename"`
+	ContentType   string `json:"contentType"`
+	SizeBytes     int64  `json:"sizeBytes"`
+	RemoteURL     string `json:"remoteUrl"`
+}
+
+// ApplicationFileDeletedData represents the data for an application_file_deleted event
+type ApplicationFileDeletedData struct {
+	Version       int    `json:"version"`
+	ApplicationID string `json:"applicationId"`
+	FileID        string `json:"fileId"`
 }
 
 // MemberDetailsChangedData represents the data for a member_details_changed event (future use)
