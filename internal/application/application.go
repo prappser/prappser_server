@@ -8,7 +8,7 @@ import (
 type Application struct {
 	ID              string           `json:"id"`
 	Name            string           `json:"name"`
-	IconName        *string          `json:"iconName,omitempty"`
+	Icon            *string          `json:"icon,omitempty"`
 	ServerPublicKey *string          `json:"serverPublicKey,omitempty"`
 	CreatedAt       int64            `json:"createdAt"`
 	UpdatedAt       int64            `json:"updatedAt"`
@@ -50,12 +50,12 @@ const (
 )
 
 type Member struct {
-	ID            string     `json:"id,omitempty"`
-	ApplicationID string     `json:"applicationId"`
-	Name          string     `json:"name"`
-	Role          MemberRole `json:"role"`
-	PublicKey     string     `json:"publicKey"`
-	AvatarBase64  string     `json:"avatarBase64"`
+	ID              string     `json:"id,omitempty"`
+	ApplicationID   string     `json:"applicationId"`
+	Name            string     `json:"name"`
+	Role            MemberRole `json:"role"`
+	PublicKey       string     `json:"publicKey"`
+	AvatarStorageID *string    `json:"avatarStorageId,omitempty"`
 }
 
 func (a *Application) UpdateTimestamp() {

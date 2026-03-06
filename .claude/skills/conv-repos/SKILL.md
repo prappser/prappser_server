@@ -23,7 +23,7 @@ scope:
 10. For single-row queries: use `db.QueryRow(...).Scan(...)`. Check `sql.ErrNoRows` explicitly.
 11. "Not found" handling: return `nil, nil` when the caller is expected to handle absence as a valid state (e.g. `GetUserByPublicKey`). Return `fmt.Errorf("X not found")` when the row must exist (e.g. delete, update expecting rowsAffected > 0).
 12. After `db.Exec(...)` for update/delete operations, check `result.RowsAffected()` and return an error if 0 rows were affected.
-13. JSON columns (`data`, `avatar_bytes`) are marshaled/unmarshaled manually in the repository using `encoding/json` or `encoding/base64`. Domain structs use Go types (`map[string]interface{}`, `string`); the DB layer handles conversion.
+13. JSON columns (`data`) are marshaled/unmarshaled manually in the repository using `encoding/json`. Domain structs use Go types (`map[string]interface{}`, `string`); the DB layer handles conversion. Nullable TEXT columns use `*string` so `database/sql` maps NULL to nil natively.
 
 ## Example
 

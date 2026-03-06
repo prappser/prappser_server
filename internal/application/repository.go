@@ -2,7 +2,6 @@ package application
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -17,20 +16,20 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 func (r *Repository) CreateApplication(app *Application) error {
-	query := `INSERT INTO applications (id, name, icon_name, server_public_key, created_at, updated_at)
+	query := `INSERT INTO applications (id, name, icon, server_public_key, created_at, updated_at)
 			  VALUES ($1, $2, $3, $4, $5, $6)`
 
-	_, err := r.db.Exec(query, app.ID, app.Name, app.IconName, app.ServerPublicKey, app.CreatedAt, app.UpdatedAt)
+	_, err := r.db.Exec(query, app.ID, app.Name, app.Icon, app.ServerPublicKey, app.CreatedAt, app.UpdatedAt)
 	return err
 }
 
 func (r *Repository) GetApplicationByID(id string) (*Application, error) {
-	query := `SELECT id, name, icon_name, server_public_key, created_at, updated_at
+	query := `SELECT id, name, icon, server_public_key, created_at, updated_at
 			  FROM applications WHERE id = $1`
 
 	app := &Application{}
 	err := r.db.QueryRow(query, id).Scan(
-		&app.ID, &app.Name, &app.IconName, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt,
+		&app.ID, &app.Name, &app.Icon, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -410,21 +409,15 @@ func (r *Repository) DeleteComponentGroup(groupID string) error {
 }
 
 func (r *Repository) CreateMember(member *Member) error {
-	query := `INSERT INTO members (id, application_id, name, role, public_key, avatar_bytes)
+	query := `INSERT INTO members (id, application_id, name, role, public_key, avatar_storage_id)
 			  VALUES ($1, $2, $3, $4, $5, $6)`
 
-	// Convert base64 string to bytes for database storage
-	var avatarBytes []byte
-	if member.AvatarBase64 != "" {
-		avatarBytes, _ = base64.StdEncoding.DecodeString(member.AvatarBase64)
-	}
-
-	_, err := r.db.Exec(query, member.ID, member.ApplicationID, member.Name, string(member.Role), member.PublicKey, avatarBytes)
+	_, err := r.db.Exec(query, member.ID, member.ApplicationID, member.Name, string(member.Role), member.PublicKey, member.AvatarStorageID)
 	return err
 }
 
 func (r *Repository) GetMembersByApplicationID(appID string) ([]*Member, error) {
-	query := `SELECT id, application_id, name, role, public_key, avatar_bytes
+	query := `SELECT id, application_id, name, role, public_key, avatar_storage_id
 			  FROM members WHERE application_id = $1 ORDER BY role, name`
 
 	rows, err := r.db.Query(query, appID)
@@ -437,7 +430,6 @@ func (r *Repository) GetMembersByApplicationID(appID string) ([]*Member, error) 
 	for rows.Next() {
 		member := &Member{}
 		var roleStr string
-		var avatarBytes []byte
 
 		err := rows.Scan(
 			&member.ID,
@@ -445,17 +437,13 @@ func (r *Repository) GetMembersByApplicationID(appID string) ([]*Member, error) 
 			&member.Name,
 			&roleStr,
 			&member.PublicKey,
-			&avatarBytes,
+			&member.AvatarStorageID,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		member.Role = MemberRole(roleStr)
-		// Convert bytes from database to base64 string for API response
-		if len(avatarBytes) > 0 {
-			member.AvatarBase64 = base64.StdEncoding.EncodeToString(avatarBytes)
-		}
 
 		members = append(members, member)
 	}
@@ -464,12 +452,11 @@ func (r *Repository) GetMembersByApplicationID(appID string) ([]*Member, error) 
 }
 
 func (r *Repository) GetMemberByID(memberID string) (*Member, error) {
-	query := `SELECT id, application_id, name, role, public_key, avatar_bytes
+	query := `SELECT id, application_id, name, role, public_key, avatar_storage_id
 			  FROM members WHERE id = $1`
 
 	member := &Member{}
 	var roleStr string
-	var avatarBytes []byte
 
 	err := r.db.QueryRow(query, memberID).Scan(
 		&member.ID,
@@ -477,7 +464,7 @@ func (r *Repository) GetMemberByID(memberID string) (*Member, error) {
 		&member.Name,
 		&roleStr,
 		&member.PublicKey,
-		&avatarBytes,
+		&member.AvatarStorageID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -488,25 +475,15 @@ func (r *Repository) GetMemberByID(memberID string) (*Member, error) {
 	}
 
 	member.Role = MemberRole(roleStr)
-	// Convert bytes from database to base64 string for API response
-	if len(avatarBytes) > 0 {
-		member.AvatarBase64 = base64.StdEncoding.EncodeToString(avatarBytes)
-	}
 
 	return member, nil
 }
 
 func (r *Repository) UpdateMember(member *Member) error {
-	query := `UPDATE members SET name = $1, role = $2, public_key = $3, avatar_bytes = $4
+	query := `UPDATE members SET name = $1, role = $2, public_key = $3, avatar_storage_id = $4
 			  WHERE id = $5`
 
-	// Convert base64 string to bytes for database storage
-	var avatarBytes []byte
-	if member.AvatarBase64 != "" {
-		avatarBytes, _ = base64.StdEncoding.DecodeString(member.AvatarBase64)
-	}
-
-	result, err := r.db.Exec(query, member.Name, string(member.Role), member.PublicKey, avatarBytes, member.ID)
+	result, err := r.db.Exec(query, member.Name, string(member.Role), member.PublicKey, member.AvatarStorageID, member.ID)
 	if err != nil {
 		return err
 	}
@@ -544,12 +521,11 @@ func (r *Repository) DeleteMember(memberID string) error {
 }
 
 func (r *Repository) GetMemberByPublicKey(appID, publicKey string) (*Member, error) {
-	query := `SELECT id, application_id, name, role, public_key, avatar_bytes
+	query := `SELECT id, application_id, name, role, public_key, avatar_storage_id
 			  FROM members WHERE application_id = $1 AND public_key = $2`
 
 	member := &Member{}
 	var roleStr string
-	var avatarBytes []byte
 
 	err := r.db.QueryRow(query, appID, publicKey).Scan(
 		&member.ID,
@@ -557,7 +533,7 @@ func (r *Repository) GetMemberByPublicKey(appID, publicKey string) (*Member, err
 		&member.Name,
 		&roleStr,
 		&member.PublicKey,
-		&avatarBytes,
+		&member.AvatarStorageID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -568,16 +544,12 @@ func (r *Repository) GetMemberByPublicKey(appID, publicKey string) (*Member, err
 	}
 
 	member.Role = MemberRole(roleStr)
-	// Convert bytes from database to base64 string for API response
-	if len(avatarBytes) > 0 {
-		member.AvatarBase64 = base64.StdEncoding.EncodeToString(avatarBytes)
-	}
 
 	return member, nil
 }
 
 func (r *Repository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error) {
-	query := `SELECT DISTINCT a.id, a.name, a.icon_name, a.server_public_key, a.created_at, a.updated_at
+	query := `SELECT DISTINCT a.id, a.name, a.icon, a.server_public_key, a.created_at, a.updated_at
 			  FROM applications a
 			  INNER JOIN members m ON a.id = m.application_id
 			  WHERE m.public_key = $1
@@ -592,7 +564,7 @@ func (r *Repository) GetApplicationsByMemberPublicKey(publicKey string) ([]*Appl
 	var applications []*Application
 	for rows.Next() {
 		app := &Application{}
-		err := rows.Scan(&app.ID, &app.Name, &app.IconName, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt)
+		err := rows.Scan(&app.ID, &app.Name, &app.Icon, &app.ServerPublicKey, &app.CreatedAt, &app.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

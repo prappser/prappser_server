@@ -7,6 +7,8 @@ import (
 	"github.com/prappser/prappser_server/internal/user"
 )
 
+func strPtr(s string) *string { return &s }
+
 func createTestUser() *user.User {
 	return &user.User{
 		PublicKey: "test-public-key",
@@ -26,7 +28,7 @@ func createBasicApplication(testUser *user.User, appName, appID string) *Applica
 				Name:         testUser.Username,
 				Role:         MemberRoleOwner,
 				PublicKey:    testUser.PublicKey,
-				AvatarBase64: "dGVzdC1hdmF0YXItZGF0YQ==", // "test-avatar-data" in base64
+				AvatarStorageID: strPtr("storage:test-avatar-id"),
 			},
 		},
 		ComponentGroups: []ComponentGroup{
@@ -55,7 +57,7 @@ func TestApplicationService_RegisterApplication_ShouldCreateApplicationWithCompo
 				Name:         testUser.Username,
 				Role:         MemberRoleOwner,
 				PublicKey:    testUser.PublicKey,
-				AvatarBase64: "dGVzdC1hdmF0YXItZGF0YQ==", // "test-avatar-data" in base64
+				AvatarStorageID: strPtr("storage:test-avatar-id"),
 			},
 		},
 		ComponentGroups: []ComponentGroup{
@@ -364,5 +366,55 @@ func TestApplicationService_DeleteApplication_ShouldReturnErrorForNonExistentApp
 
 	if err.Error() != "application not found" {
 		t.Errorf("Expected 'application not found' error, got '%s'", err.Error())
+	}
+}
+
+func TestApplicationService_RegisterApplication_ShouldRoundTripMemberWithNilAvatar(t *testing.T) {
+	// given
+	testUser := createTestUser()
+	appRepo := NewMemoryRepository()
+	appService := NewApplicationService(appRepo)
+
+	app := &Application{
+		ID:   "nil-avatar-test-id",
+		Name: "Nil Avatar App",
+		Members: []Member{
+			{
+				ID:              "nil-avatar-member-1",
+				Name:            testUser.Username,
+				Role:            MemberRoleOwner,
+				PublicKey:       testUser.PublicKey,
+				AvatarStorageID: nil,
+			},
+		},
+		ComponentGroups: []ComponentGroup{
+			{
+				ID:         "nil-avatar-group-1",
+				Name:       "Default Group",
+				Index:      0,
+				Components: []Component{},
+			},
+		},
+	}
+
+	// when
+	registeredApp, err := appService.RegisterApplication(testUser.PublicKey, app)
+
+	// then
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	retrievedApp, err := appService.GetApplication(registeredApp.ID, testUser)
+	if err != nil {
+		t.Fatalf("Expected no error retrieving app, got: %v", err)
+	}
+
+	if len(retrievedApp.Members) != 1 {
+		t.Fatalf("Expected 1 member, got %d", len(retrievedApp.Members))
+	}
+
+	if retrievedApp.Members[0].AvatarStorageID != nil {
+		t.Errorf("Expected AvatarStorageID to be nil, got %v", retrievedApp.Members[0].AvatarStorageID)
 	}
 }

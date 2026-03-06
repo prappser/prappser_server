@@ -122,9 +122,9 @@ type ApplicationAfterEditModeChangedData struct {
 
 // UserSettingsChangedData represents the data for a user_settings_changed event
 type UserSettingsChangedData struct {
-	Version         int    `json:"version"`
-	UserPublicKey   string `json:"userPublicKey"`
-	AvatarStorageID string `json:"avatarStorageId,omitempty"`
+	Version         int     `json:"version"`
+	UserPublicKey   string  `json:"userPublicKey"`
+	AvatarStorageID *string `json:"avatarStorageId,omitempty"`
 }
 
 // ApplicationCreatedData represents the data for an application_created event
