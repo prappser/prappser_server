@@ -96,6 +96,22 @@ func (r *MemoryRepository) UpdateApplicationTimestamp(id string) error {
 	return nil
 }
 
+func (r *MemoryRepository) UpdateApplicationMetadata(id, name string, icon *string) error {
+	app, exists := r.applications[id]
+	if !exists {
+		return fmt.Errorf("application not found")
+	}
+
+	if app.DeletedAt != nil {
+		return fmt.Errorf("application not found")
+	}
+
+	app.Name = name
+	app.Icon = icon
+	app.UpdateTimestamp()
+	return nil
+}
+
 func (r *MemoryRepository) DeleteApplication(id string) error {
 	app, exists := r.applications[id]
 	if !exists {

@@ -101,6 +101,9 @@ func validateApplicationDataChangedData(data map[string]interface{}) error {
 	if _, ok := data["applicationId"].(string); !ok || data["applicationId"] == "" {
 		return fmt.Errorf("%w: applicationId is required", ErrValidation)
 	}
+	if _, ok := data["name"].(string); !ok || data["name"] == "" {
+		return fmt.Errorf("%w: name is required", ErrValidation)
+	}
 	return nil
 }
 

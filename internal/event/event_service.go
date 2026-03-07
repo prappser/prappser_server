@@ -404,6 +404,9 @@ func (s *EventService) executeEvent(ctx context.Context, event *Event) error {
 		// Future: update member record
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: member_details_changed (no-op)")
 		return nil
+	case EventTypeApplicationDataChanged:
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_data_changed")
+		return s.executeApplicationDataChanged(ctx, event)
 	case "application_created":
 		// No server-side state change: application was already registered by the creator device
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_created (no-op)")
@@ -506,6 +509,26 @@ func (s *EventService) executeMemberRemoved(ctx context.Context, event *Event) e
 		Msg("[MEMBER_REMOVED] Successfully deleted member from database")
 
 	return nil
+}
+
+// executeApplicationDataChanged updates application name and icon
+func (s *EventService) executeApplicationDataChanged(ctx context.Context, event *Event) error {
+	appID, ok := event.Data["applicationId"].(string)
+	if !ok || appID == "" {
+		return fmt.Errorf("missing applicationId in application_data_changed event")
+	}
+
+	name, ok := event.Data["name"].(string)
+	if !ok || name == "" {
+		return fmt.Errorf("missing name in application_data_changed event")
+	}
+
+	var icon *string
+	if iconVal, ok := event.Data["icon"].(string); ok && iconVal != "" {
+		icon = &iconVal
+	}
+
+	return s.appRepo.UpdateApplicationMetadata(appID, name, icon)
 }
 
 // executeApplicationDeleted deletes an application (cascades to members, groups, components)

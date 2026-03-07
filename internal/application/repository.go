@@ -97,6 +97,26 @@ func (r *Repository) UpdateApplicationTimestamp(id string) error {
 	return err
 }
 
+func (r *Repository) UpdateApplicationMetadata(id, name string, icon *string) error {
+	query := `UPDATE applications SET name = $1, icon = $2, updated_at = $3 WHERE id = $4 AND deleted_at IS NULL`
+
+	result, err := r.db.Exec(query, name, icon, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("application not found")
+	}
+
+	return nil
+}
+
 func (r *Repository) DeleteApplication(id string) error {
 	query := `UPDATE applications SET deleted_at = $1 WHERE id = $2`
 

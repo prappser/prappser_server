@@ -33,4 +33,5 @@ type ApplicationRepository interface {
 	GetApplicationsByMemberPublicKey(publicKey string) ([]*Application, error)
 	IsMember(appID, publicKey string) (bool, error)
 	GetMemberCount(appID string) (int, error)
+	UpdateApplicationMetadata(id, name string, icon *string) error
 }
