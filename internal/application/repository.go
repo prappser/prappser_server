@@ -17,7 +17,12 @@ func NewRepository(db *sql.DB) *Repository {
 
 func (r *Repository) CreateApplication(app *Application) error {
 	query := `INSERT INTO applications (id, name, icon, server_public_key, created_at, updated_at)
-			  VALUES ($1, $2, $3, $4, $5, $6)`
+			  VALUES ($1, $2, $3, $4, $5, $6)
+			  ON CONFLICT (id) DO UPDATE SET
+			    name = EXCLUDED.name,
+			    icon = EXCLUDED.icon,
+			    updated_at = EXCLUDED.updated_at,
+			    deleted_at = NULL`
 
 	_, err := r.db.Exec(query, app.ID, app.Name, app.Icon, app.ServerPublicKey, app.CreatedAt, app.UpdatedAt)
 	return err
@@ -139,7 +144,10 @@ func (r *Repository) DeleteApplication(id string) error {
 
 func (r *Repository) CreateComponentGroup(group *ComponentGroup) error {
 	query := `INSERT INTO component_groups (id, application_id, name, index_order)
-			  VALUES ($1, $2, $3, $4)`
+			  VALUES ($1, $2, $3, $4)
+			  ON CONFLICT (id) DO UPDATE SET
+			    name = EXCLUDED.name,
+			    index_order = EXCLUDED.index_order`
 
 	_, err := r.db.Exec(query, group.ID, group.ApplicationID, group.Name, group.Index)
 	return err
@@ -170,7 +178,11 @@ func (r *Repository) GetComponentGroupsByApplicationID(appID string) ([]*Compone
 
 func (r *Repository) CreateComponent(component *Component) error {
 	query := `INSERT INTO components (id, component_group_id, application_id, name, data, index_order)
-			  VALUES ($1, $2, $3, $4, $5, $6)`
+			  VALUES ($1, $2, $3, $4, $5, $6)
+			  ON CONFLICT (id) DO UPDATE SET
+			    name = EXCLUDED.name,
+			    data = EXCLUDED.data,
+			    index_order = EXCLUDED.index_order`
 
 	var dataJSON string
 	if component.Data != nil {
@@ -430,7 +442,11 @@ func (r *Repository) DeleteComponentGroup(groupID string) error {
 
 func (r *Repository) CreateMember(member *Member) error {
 	query := `INSERT INTO members (id, application_id, name, role, public_key, avatar_storage_id)
-			  VALUES ($1, $2, $3, $4, $5, $6)`
+			  VALUES ($1, $2, $3, $4, $5, $6)
+			  ON CONFLICT (id) DO UPDATE SET
+			    name = EXCLUDED.name,
+			    role = EXCLUDED.role,
+			    avatar_storage_id = EXCLUDED.avatar_storage_id`
 
 	_, err := r.db.Exec(query, member.ID, member.ApplicationID, member.Name, string(member.Role), member.PublicKey, member.AvatarStorageID)
 	return err
