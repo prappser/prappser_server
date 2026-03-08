@@ -300,6 +300,15 @@ func (r *MemoryRepository) UpdateMember(member *Member) error {
 	return nil
 }
 
+func (r *MemoryRepository) UpdateMemberAvatarByPublicKey(publicKey string, avatarStorageID *string) error {
+	for _, member := range r.members {
+		if member.PublicKey == publicKey {
+			member.AvatarStorageID = avatarStorageID
+		}
+	}
+	return nil
+}
+
 func (r *MemoryRepository) DeleteMember(memberID string) error {
 	_, exists := r.members[memberID]
 	if !exists {

@@ -536,6 +536,12 @@ func (r *Repository) UpdateMember(member *Member) error {
 	return nil
 }
 
+func (r *Repository) UpdateMemberAvatarByPublicKey(publicKey string, avatarStorageID *string) error {
+	query := `UPDATE members SET avatar_storage_id = $1 WHERE public_key = $2`
+	_, err := r.db.Exec(query, avatarStorageID, publicKey)
+	return err
+}
+
 func (r *Repository) DeleteMember(memberID string) error {
 	query := `DELETE FROM members WHERE id = $1`
 

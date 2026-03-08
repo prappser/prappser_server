@@ -27,6 +27,7 @@ type ApplicationRepository interface {
 	GetMemberByID(memberID string) (*Member, error)
 	GetMemberByPublicKey(appID, publicKey string) (*Member, error)
 	UpdateMember(member *Member) error
+	UpdateMemberAvatarByPublicKey(publicKey string, avatarStorageID *string) error
 	DeleteMember(memberID string) error
 
 	// Invitation-related methods

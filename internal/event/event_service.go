@@ -397,9 +397,8 @@ func (s *EventService) executeEvent(ctx context.Context, event *Event) error {
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: application_after_edit_mode_changed")
 		return s.executeApplicationAfterEditModeChanged(ctx, event)
 	case "user_settings_changed":
-		// No server-side state changes needed for v1 (avatar is in storage)
-		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: user_settings_changed (no-op)")
-		return nil
+		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: user_settings_changed")
+		return s.executeUserSettingsChanged(event)
 	case "member_details_changed":
 		// Future: update member record
 		log.Debug().Str("eventId", event.ID).Msg("[EVENT] Handler: member_details_changed (no-op)")
@@ -529,6 +528,21 @@ func (s *EventService) executeApplicationDataChanged(ctx context.Context, event 
 	}
 
 	return s.appRepo.UpdateApplicationMetadata(appID, name, icon)
+}
+
+// executeUserSettingsChanged updates the avatar storage ID for all memberships of a user
+func (s *EventService) executeUserSettingsChanged(event *Event) error {
+	userPublicKey, ok := event.Data["userPublicKey"].(string)
+	if !ok || userPublicKey == "" {
+		return fmt.Errorf("missing userPublicKey in user_settings_changed event")
+	}
+
+	var avatarStorageID *string
+	if v, ok := event.Data["avatarStorageId"].(string); ok && v != "" {
+		avatarStorageID = &v
+	}
+
+	return s.appRepo.UpdateMemberAvatarByPublicKey(userPublicKey, avatarStorageID)
 }
 
 // executeApplicationDeleted deletes an application (cascades to members, groups, components)
