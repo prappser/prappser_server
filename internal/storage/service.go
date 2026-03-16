@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -16,12 +17,15 @@ import (
 	"time"
 
 	"github.com/disintegration/imaging"
+	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
 )
 
 const (
 	maxThumbnailWidth  = 300
 	maxThumbnailHeight = 300
+
+	pqUniqueViolation = "23505"
 )
 
 var allowedContentTypes = map[string]bool{
@@ -71,7 +75,7 @@ func (s *Service) Upload(ctx context.Context, appID *string, uploaderPublicKey s
 	writer := io.MultiWriter(buf, hasher)
 
 	n, err := io.CopyN(writer, data, s.maxFileSize+1)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("failed to read data: %w", err)
 	}
 	if n > s.maxFileSize {
@@ -103,13 +107,29 @@ func (s *Service) Upload(ctx context.Context, appID *string, uploaderPublicKey s
 		Status:            string(StorageStatusReady),
 	}
 
-	if strings.HasPrefix(req.ContentType, "image/") {
-		s.processImage(ctx, stored, buf.Bytes())
-	}
-
 	if err := s.repo.Create(stored); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == pqUniqueViolation {
+			s.backend.Delete(ctx, storagePath)
+			existing, err := s.repo.GetByID(req.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch existing storage record: %w", err)
+			}
+			s.populateURLs(ctx, existing)
+			return existing, nil
+		}
 		s.backend.Delete(ctx, storagePath)
 		return nil, fmt.Errorf("failed to save storage record: %w", err)
+	}
+
+	if strings.HasPrefix(req.ContentType, "image/") {
+		s.processImage(ctx, stored, buf.Bytes())
+		if stored.Width != nil && stored.Height != nil {
+			s.repo.UpdateDimensions(stored.ID, *stored.Width, *stored.Height)
+		}
+		if stored.ThumbnailPath != "" {
+			s.repo.UpdateThumbnail(stored.ID, stored.ThumbnailPath)
+		}
 	}
 
 	s.populateURLs(ctx, stored)
@@ -259,6 +279,10 @@ func (s *Service) InitChunkedUpload(ctx context.Context, appID *string, uploader
 	}
 
 	if err := s.repo.Create(stored); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == pqUniqueViolation {
+			return nil, fmt.Errorf("chunked upload already initialized for storage ID: %s", req.ID)
+		}
 		return nil, fmt.Errorf("failed to create storage record: %w", err)
 	}
 
