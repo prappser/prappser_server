@@ -106,7 +106,7 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 		expiresAt = &exp
 	}
 
-	token, err := s.GenerateToken(invite.ID, invite.ApplicationID, invite.Role, s.externalURL, expiresAt)
+	token, err := s.GenerateToken(invite.ID, s.externalURL, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
@@ -126,7 +126,7 @@ func (s *InvitationService) CreateInvitation(opts CreateInvitationOptions) (*Inv
 }
 
 // GenerateToken creates a signed JWT token for an invitation
-func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL string, expiresAt *int64) (string, error) {
+func (s *InvitationService) GenerateToken(inviteID, serverURL string, expiresAt *int64) (string, error) {
 	now := time.Now()
 
 	issuedAt := now.Unix()
@@ -134,9 +134,7 @@ func (s *InvitationService) GenerateToken(inviteID, appID, role, serverURL strin
 
 	// Create token with custom claims
 	mapClaims := jwt.MapClaims{
-		"inviteId":  inviteID,
-		"appId":     appID,
-		"role":      role,
+		"id":        inviteID,
 		"serverUrl": serverURL,
 		"iat":       issuedAt,
 		"nbf":       notBefore,
@@ -174,21 +172,26 @@ func (s *InvitationService) ValidateToken(tokenString string) (*InviteTokenClaim
 
 	// Extract claims
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		inviteClaims := &InviteTokenClaims{
-			InviteID:      claims["inviteId"].(string),
-			ApplicationID: claims["appId"].(string),
-			Role:          claims["role"].(string),
-			IssuedAt:      int64(claims["iat"].(float64)),
+		idStr, ok := claims["id"].(string)
+		if !ok || idStr == "" {
+			return nil, fmt.Errorf("missing or invalid id claim")
+		}
+		iatFloat, ok := claims["iat"].(float64)
+		if !ok {
+			return nil, fmt.Errorf("missing or invalid iat claim")
 		}
 
-		// ServerURL is required (added in this version)
+		inviteClaims := &InviteTokenClaims{
+			InviteID: idStr,
+			IssuedAt: int64(iatFloat),
+		}
+
 		if serverURL, ok := claims["serverUrl"].(string); ok {
 			inviteClaims.ServerURL = serverURL
 		}
 
-		// ExpiresAt is optional
-		if exp, ok := claims["exp"]; ok && exp != nil {
-			expInt := int64(exp.(float64))
+		if expFloat, ok := claims["exp"].(float64); ok {
+			expInt := int64(expFloat)
 			inviteClaims.ExpiresAt = &expInt
 		}
 
@@ -211,7 +214,6 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 	}
 	log.Debug().
 		Str("inviteId", claims.InviteID).
-		Str("appId", claims.ApplicationID).
 		Msg("[INVITE] Token validated")
 
 	// Check expiration from JWT
@@ -413,7 +415,6 @@ func (s *InvitationService) Join(tokenString, userPublicKey, userName string) (*
 	}
 	log.Debug().
 		Str("inviteId", claims.InviteID).
-		Str("appId", claims.ApplicationID).
 		Msg("[INVITE] Token validated")
 
 	// Check expiration

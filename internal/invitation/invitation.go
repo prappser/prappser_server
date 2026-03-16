@@ -66,12 +66,10 @@ type CheckInvitationResult struct {
 
 // InviteTokenClaims represents JWT claims for invitation tokens
 type InviteTokenClaims struct {
-	InviteID      string `json:"inviteId"`
-	ApplicationID string `json:"appId"`
-	Role          string `json:"role"`
-	ServerURL     string `json:"serverUrl"`
-	IssuedAt      int64  `json:"iat"`
-	ExpiresAt     *int64 `json:"exp,omitempty"`
+	InviteID  string `json:"id"`
+	ServerURL string `json:"serverUrl"`
+	IssuedAt  int64  `json:"iat"`
+	ExpiresAt *int64 `json:"exp,omitempty"`
 }
 
 // JoinResponse is returned when successfully joining an application
