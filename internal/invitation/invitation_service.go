@@ -248,9 +248,11 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 		Str("appId", invite.ApplicationID).
 		Msg("[INVITE] Fetching application details")
 	applicationName := "Unknown Application"
+	var applicationIcon *string
 	app, err := s.appRepo.GetApplicationByID(invite.ApplicationID)
 	if err == nil && app != nil {
 		applicationName = app.Name
+		applicationIcon = app.Icon
 		log.Debug().
 			Str("appName", app.Name).
 			Msg("[INVITE] Application found")
@@ -280,6 +282,7 @@ func (s *InvitationService) GetInviteInfo(tokenString string) (*InviteInfo, erro
 	info := &InviteInfo{
 		InviteID:        invite.ID,
 		ApplicationName: applicationName,
+		ApplicationIcon: applicationIcon,
 		CreatorUsername: creatorUsername,
 		Role:            invite.Role,
 		ExpiresAt:       claims.ExpiresAt,

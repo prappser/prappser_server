@@ -42,13 +42,14 @@ type InvitationOptions struct {
 
 // InviteInfo is public information about an invitation
 type InviteInfo struct {
-	InviteID        string `json:"inviteId"`
-	ApplicationName string `json:"applicationName"`
-	CreatorUsername string `json:"creatorUsername"`
-	Role            string `json:"role"`
-	ExpiresAt       *int64 `json:"expiresAt,omitempty"`
-	IsExpired       bool   `json:"isExpired"`
-	IsValid         bool   `json:"isValid"`
+	InviteID        string  `json:"inviteId"`
+	ApplicationName string  `json:"applicationName"`
+	ApplicationIcon *string `json:"applicationIcon,omitempty"`
+	CreatorUsername string  `json:"creatorUsername"`
+	Role            string  `json:"role"`
+	ExpiresAt       *int64  `json:"expiresAt,omitempty"`
+	IsExpired       bool    `json:"isExpired"`
+	IsValid         bool    `json:"isValid"`
 }
 
 // CheckInvitationResult contains status information about invitation usage
