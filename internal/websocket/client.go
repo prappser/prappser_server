@@ -82,7 +82,7 @@ func (c *Client) GetSubscriptions() []string {
 func (c *Client) ReadPump() {
 	defer func() {
 		c.hub.Unregister(c)
-		c.conn.Close()
+		// WritePump owns conn.Close() via its own defer
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -145,12 +145,11 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if !ok {
-				// Channel closed
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				// Channel closed by hub, connection will be closed by defer
 				return
 			}
+			c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 			err := c.conn.WriteJSON(message)
 			if err != nil {

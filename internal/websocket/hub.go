@@ -85,7 +85,7 @@ func (h *Hub) unregisterClient(client *Client) {
 	}
 
 	// Remove from all app subscriptions
-	for appID := range client.subscriptions {
+	for _, appID := range client.GetSubscriptions() {
 		h.removeFromAppSubscribers(client, appID)
 	}
 
